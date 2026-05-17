@@ -1811,6 +1811,7 @@ impl<'a> Transpiler<'a> {
             // TODO: use lazy export AST
             options::Loader::Toml
             | options::Loader::Yaml
+            | options::Loader::Xml
             | options::Loader::Json
             | options::Loader::Jsonc
             | options::Loader::Json5 => {
@@ -1897,6 +1898,10 @@ fn parse_data_loader<'a>(
             Err(_) => return None,
         },
         options::Loader::Yaml => match bun_parsers::yaml::YAML::parse(source, log, arena) {
+            Ok(e) => e,
+            Err(_) => return None,
+        },
+        options::Loader::Xml => match bun_parsers::xml::XML::parse(source, log, arena) {
             Ok(e) => e,
             Err(_) => return None,
         },
@@ -2972,6 +2977,7 @@ impl<'a> Transpiler<'a> {
             | options::Loader::Jsonc
             | options::Loader::Toml
             | options::Loader::Yaml
+            | options::Loader::Xml
             | options::Loader::Json5
             | options::Loader::Text
             | options::Loader::Md => {
