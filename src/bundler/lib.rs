@@ -311,12 +311,11 @@ pub use cache::RuntimeTranspilerCacheExt;
 pub use cache::Set as Cache;
 
 // ──────────────────────────────────────────────────────────────────────────
-// Re-export the canonical `bake_types` defs from
-// `bundle_v2` so there is exactly ONE nominal `Side`/`Graph`/`Framework` etc.
-// across the crate (the previous inline copy here diverged and produced
-// "expected `bake_types::Graph`, found `bake_types::Graph`" errors).
+// TYPE_ONLY seam module shared with `bun_runtime::bake` — the single nominal
+// `Side`/`Graph`/`Framework` etc. across the crate. Part of the
+// `DevServerHandle` seam below (its vtable slots name `Graph`/`CacheEntry`).
 // ──────────────────────────────────────────────────────────────────────────
-pub use bundle_v2::bake_types;
+pub mod bake_types;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Re-export the canonical `dispatch` module from
