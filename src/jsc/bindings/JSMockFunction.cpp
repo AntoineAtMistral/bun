@@ -838,7 +838,9 @@ JSC_DEFINE_HOST_FUNCTION(jsMockFunctionCall, (JSGlobalObject * lexicalGlobalObje
     }
 
     JSC::ArgList args = JSC::ArgList(callframe);
-    JSValue thisValue = callframe->thisValue();
+    // Convert the raw `this` so a JSLexicalEnvironment passed by a scope-resolved
+    // bare call can never be stored in mock.contexts or returned by mockReturnThis.
+    JSValue thisValue = callframe->thisValue().toThis(globalObject, JSC::ECMAMode::strict());
     JSC::JSArray* argumentsArray = nullptr;
     {
         JSC::ObjectInitializationScope object(vm);
@@ -1450,11 +1452,11 @@ BUN_DEFINE_HOST_FUNCTION(JSMock__jsSetSystemTime, (JSC::JSGlobalObject * globalO
     // pre-epoch negatives, overrides; an omitted arg, NaN, or invalid Date resets.
     if (auto* dateInstance = dynamicDowncast<DateInstance>(argument0)) {
         globalObject->overridenDateNow = dateInstance->internalNumber();
-        return JSValue::encode(callframe->thisValue());
+        return JSValue::encode(callframe->thisValue().toThis(globalObject, JSC::ECMAMode::strict()));
     }
     globalObject->overridenDateNow = argument0.isNumber() ? argument0.asNumber() : PNaN;
 
-    return JSValue::encode(callframe->thisValue());
+    return JSValue::encode(callframe->thisValue().toThis(globalObject, JSC::ECMAMode::strict()));
 }
 
 BUN_DEFINE_HOST_FUNCTION(JSMock__jsRestoreAllMocks, (JSC::JSGlobalObject * globalObject, JSC::CallFrame* callframe))
