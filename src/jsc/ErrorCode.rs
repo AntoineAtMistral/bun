@@ -713,9 +713,13 @@ impl ErrorCode {
     pub const DIR_CONCURRENT_OPERATION: ErrorCode = ErrorCode(327);
     /// `ERR_INVALID_BUFFER_SIZE` (instanceof RangeError)
     pub const INVALID_BUFFER_SIZE: ErrorCode = ErrorCode(328);
+    /// `ERR_INVALID_TYPESCRIPT_SYNTAX` (instanceof SyntaxError)
+    pub const INVALID_TYPESCRIPT_SYNTAX: ErrorCode = ErrorCode(329);
+    /// `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` (instanceof SyntaxError)
+    pub const UNSUPPORTED_TYPESCRIPT_SYNTAX: ErrorCode = ErrorCode(330);
 
     /// == C++ `NODE_ERROR_COUNT`.
-    pub const COUNT: u16 = 329;
+    pub const COUNT: u16 = 331;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -967,6 +971,9 @@ impl ErrorCode {
     pub const ERR_MYSQL_CONNECTION_CLOSED: ErrorCode = ErrorCode::MYSQL_CONNECTION_CLOSED;
     pub const ERR_MYSQL_CONNECTION_FAILED: ErrorCode = ErrorCode::MYSQL_CONNECTION_FAILED;
     pub const ERR_MYSQL_CONNECTION_REFUSED: ErrorCode = ErrorCode::MYSQL_CONNECTION_REFUSED;
+    pub const ERR_INVALID_TYPESCRIPT_SYNTAX: ErrorCode = ErrorCode::INVALID_TYPESCRIPT_SYNTAX;
+    pub const ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX: ErrorCode =
+        ErrorCode::UNSUPPORTED_TYPESCRIPT_SYNTAX;
     pub const ERR_MYSQL_CONNECTION_TIMEOUT: ErrorCode = ErrorCode::MYSQL_CONNECTION_TIMEOUT;
     pub const ERR_MYSQL_IDLE_TIMEOUT: ErrorCode = ErrorCode::MYSQL_IDLE_TIMEOUT;
     pub const ERR_MYSQL_LIFETIME_TIMEOUT: ErrorCode = ErrorCode::MYSQL_LIFETIME_TIMEOUT;
@@ -1433,6 +1440,8 @@ static CODE_STR: [&str; ErrorCode::COUNT as usize] = [
     "ERR_FS_CP_SYMLINK_TO_SUBDIRECTORY",
     "ERR_DIR_CONCURRENT_OPERATION",
     "ERR_INVALID_BUFFER_SIZE",
+    "ERR_INVALID_TYPESCRIPT_SYNTAX",
+    "ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX",
 ];
 
 // ──────────────────────────────────────────────────────────────────────────
