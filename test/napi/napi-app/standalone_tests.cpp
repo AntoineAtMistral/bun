@@ -2389,9 +2389,9 @@ static napi_value test_napi_create_tsfn_async_context_frame(const Napi::Callback
 }
 
 // napi_get_all_property_names must propagate exceptions thrown by Proxy traps
-// (getOwnPropertyDescriptor / getPrototypeOf) that run inside its descriptor
-// filter loop. info[1] is the target object, info[2] is the
-// napi_key_collection_mode (0 = include_prototypes, 1 = own_only).
+// that run inside its descriptor filter loop. info[1] is the target object,
+// info[2] is the napi_key_collection_mode (0 = include_prototypes,
+// 1 = own_only).
 static napi_value
 test_napi_get_all_property_names_throws(const Napi::CallbackInfo &info) {
   napi_env env = info.Env();
