@@ -31,8 +31,10 @@ pub use error::ReturnCodeExt;
 impl From<Error> for bun_core::Error {
     #[inline]
     fn from(e: Error) -> bun_core::Error {
-        // Encode as the errno's name (e.g., "ENOENT") in the interned table.
-        bun_core::Error::from_errno(e.errno as i32)
+        // Route through `to_zig_err` so syscall-specific errno→name mappings
+        // (e.g. getcwd+ENOENT → CurrentWorkingDirectoryUnlinked) apply to `?`
+        // conversions as well.
+        e.to_zig_err()
     }
 }
 /// The JS-facing rich error

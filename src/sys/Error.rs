@@ -325,6 +325,13 @@ impl Error {
     }
 
     pub fn to_zig_err(&self) -> bun_core::Error {
+        // Zig's `std.posix.getcwd` maps ENOENT to the named error
+        // `CurrentWorkingDirectoryUnlinked`; preserve that name so
+        // `crash_handler::handle_root_error` can print the actionable hint
+        // instead of falling through to the generic ENOENT message.
+        if self.syscall == Tag::getcwd && self.get_errno() == E::ENOENT {
+            return bun_core::err!("CurrentWorkingDirectoryUnlinked");
+        }
         errno_to_err(self.errno)
     }
 

@@ -4355,7 +4355,14 @@ pub fn getcwd(buf: &mut PathBuffer) -> Result<&ZStr, crate::Error> {
     unsafe {
         let p = libc::getcwd(buf.0.as_mut_ptr().cast(), buf.0.len());
         if p.is_null() {
-            return Err(std::io::Error::last_os_error().into());
+            let e = std::io::Error::last_os_error();
+            // Mirror Zig's `std.posix.getcwd`: ENOENT means the cwd was
+            // unlinked. `crash_handler::handle_root_error` matches on this
+            // name to print an actionable hint.
+            if e.raw_os_error() == Some(libc::ENOENT) {
+                return Err(crate::err!("CurrentWorkingDirectoryUnlinked"));
+            }
+            return Err(e.into());
         }
         let len = libc::strlen(p);
         Ok(ZStr::from_buf(&buf.0, len))
