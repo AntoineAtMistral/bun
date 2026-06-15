@@ -52,6 +52,8 @@ const shellParse = $newRustFunction("shell.rs", "TestingAPIs.shellParse", 2);
 
 export const sslCtxLiveCount = $newRustFunction("SecureContext.rs", "jsLiveCount", 0);
 
+export const mimallocHeapNewCount = $newRustFunction("UnsafeObject.rs", "jsMimallocHeapNewCount", 0);
+
 export const escapeRegExp = $newRustFunction("escapeRegExp.rs", "jsEscapeRegExp", 1);
 export const escapeRegExpForPackageNameMatching = $newRustFunction(
   "escapeRegExp.rs",

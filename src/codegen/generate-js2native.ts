@@ -50,6 +50,7 @@ const rustIdentifierPaths: Record<string, string> = {
   "Listener.rs": "runtime/socket/Listener.rs",
   "SecureContext.rs": "runtime/api/bun/SecureContext.rs",
   "Stat.rs": "runtime/node/Stat.rs",
+  "UnsafeObject.rs": "runtime/api/UnsafeObject.rs",
   "bindgen_test.rs": "jsc/bindgen_test.rs",
   "collections/linear_fifo.rs": "collections/linear_fifo.rs",
   "crash_handler.rs": "crash_handler/crash_handler.rs",
