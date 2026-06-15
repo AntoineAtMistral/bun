@@ -1266,8 +1266,8 @@ describe("resourceUsage", () => {
       stderr: "pipe",
     });
 
-    const [, , exitCode] = await Promise.all([proc.stdout.text(), proc.stderr.text(), proc.exited]);
-    expect(exitCode).toBe(0);
+    const [stdout, stderr, exitCode] = await Promise.all([proc.stdout.text(), proc.stderr.text(), proc.exited]);
+    expect({ stdout, stderr, exitCode }).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 
     const usage = proc.resourceUsage();
     expect(usage).toBeDefined();
