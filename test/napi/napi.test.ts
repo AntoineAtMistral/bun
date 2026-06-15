@@ -970,6 +970,15 @@ describe.skipIf(!canBuildNodeAddons())("cleanup hooks", () => {
     });
   });
 
+  describe("napi_get_all_property_names", () => {
+    it("returns napi_pending_exception when a Proxy trap throws during descriptor filtering", async () => {
+      const output = await checkSameOutput("test_get_all_property_names_throwing_proxy", []);
+      expect(output).toContain("napi_get_all_property_names(mode=1) status -> 10");
+      expect(output).toContain("napi_get_all_property_names(mode=0) status -> 10");
+      expect(output).toContain("exception message: getOwnPropertyDescriptor trap threw");
+    });
+  });
+
   describe("error handling", () => {
     it("removing non-existent env cleanup hook should not crash", async () => {
       // Test that removing non-existent hooks doesn't crash the process
