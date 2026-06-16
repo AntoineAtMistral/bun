@@ -509,6 +509,7 @@ function urlFormat(urlObject: unknown, options?: unknown) {
 function formatWHATWG(urlObject: URL, auth: boolean, fragment: boolean, search: boolean, unicode: boolean) {
   const href = urlObject.href;
   const protocol = urlObject.protocol;
+  const pathname = urlObject.pathname;
 
   let ret = protocol;
 
@@ -530,21 +531,64 @@ function formatWHATWG(urlObject: URL, auth: boolean, fragment: boolean, search: 
       ret += "@";
     }
 
-    let hostname = urlObject.hostname;
-    if (unicode && hostname && hostname.$charCodeAt(0) !== Char.LEFT_SQUARE_BRACKET) {
-      hostname = domainToUnicode(hostname);
-    }
-    ret += hostname;
+    ret += unicode ? hostnameToUnicode(urlObject.hostname) : urlObject.hostname;
 
     const port = urlObject.port;
     if (port) ret += ":" + port;
+  } else if (
+    pathname.length > 1 &&
+    pathname.$charCodeAt(0) === Char.FORWARD_SLASH &&
+    pathname.$charCodeAt(1) === Char.FORWARD_SLASH
+  ) {
+    // https://url.spec.whatwg.org/#url-serializing step 3: when the host is
+    // null and the first path segment is empty, emit "/." so the result does
+    // not re-parse as having an authority.
+    ret += "/.";
   }
 
-  ret += urlObject.pathname;
-  if (search) ret += urlObject.search;
-  if (fragment) ret += urlObject.hash;
+  ret += pathname;
+
+  // The .search and .hash getters collapse "absent" and "empty" to the same
+  // value (""). "?" and "#" only appear in the serialized href as the query
+  // and fragment delimiters, so scan the href to recover the empty case.
+  const hashIdx = href.indexOf("#");
+  if (search) {
+    let s = urlObject.search;
+    if (!s) {
+      const qIdx = href.indexOf("?");
+      if (qIdx !== -1 && (hashIdx === -1 || qIdx < hashIdx)) s = "?";
+    }
+    ret += s;
+  }
+  if (fragment) {
+    ret += urlObject.hash || (hashIdx !== -1 ? "#" : "");
+  }
 
   return ret;
+}
+
+function hostnameToUnicode(hostname: string) {
+  // IPv6 literals and hostnames with no punycode labels are returned as-is.
+  // Only labels that literally start with "xn--" are decoded; others keep
+  // their original bytes and case (opaque hosts for non-special schemes are
+  // not lowercased by the parser).
+  if (!hostname || hostname.$charCodeAt(0) === Char.LEFT_SQUARE_BRACKET || hostname.indexOf("xn--") === -1) {
+    return hostname;
+  }
+  const labels = hostname.split(".");
+  for (let i = 0; i < labels.length; i++) {
+    const label = labels[i];
+    if (
+      label.length > 4 &&
+      label.$charCodeAt(0) === 120 /* x */ &&
+      label.$charCodeAt(1) === 110 /* n */ &&
+      label.$charCodeAt(2) === 45 /* - */ &&
+      label.$charCodeAt(3) === 45 /* - */
+    ) {
+      labels[i] = domainToUnicode(label) || label;
+    }
+  }
+  return labels.join(".");
 }
 
 Url.prototype.format = function format() {

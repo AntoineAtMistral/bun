@@ -89,5 +89,35 @@ describe("url.format", () => {
       url.format(new URL("http://user:pass@example.com/path?q#h"), { auth: false, search: false, fragment: false }),
       "http://example.com/path",
     );
+    assert.strictEqual(url.format(new URL("blob:http://a/b")), "blob:http://a/b");
+
+    // No authority, path starting with "//": must emit "/." so the result
+    // round-trips instead of re-parsing with a host.
+    assert.strictEqual(url.format(new URL("web+foo:/.//p")), "web+foo:/.//p");
+    assert.strictEqual(new URL(url.format(new URL("web+foo:/.//p"))).pathname, "//p");
+
+    // .search and .hash return "" for both absent and empty; the serializer
+    // must keep a bare "?" or "#" that is present in the href.
+    assert.strictEqual(url.format(new URL("http://a/?#")), "http://a/?#");
+    assert.strictEqual(url.format(new URL("http://a/?#"), { search: false }), "http://a/#");
+    assert.strictEqual(url.format(new URL("http://a/?#"), { fragment: false }), "http://a/?");
+    assert.strictEqual(url.format(new URL("http://a/?")), "http://a/?");
+    assert.strictEqual(url.format(new URL("http://a/#")), "http://a/#");
+    assert.strictEqual(url.format(new URL("http://a/#?")), "http://a/#?");
+    assert.strictEqual(url.format(new URL("http://a/#?"), { search: false }), "http://a/#?");
+    assert.strictEqual(url.format(new URL("http://a/p?q#"), { fragment: false }), "http://a/p?q");
+
+    // Opaque hosts (non-special schemes) keep their case with unicode: true;
+    // only labels that literally start with "xn--" are decoded.
+    assert.strictEqual(url.format(new URL("foo://EXAMPLE.com/p"), { unicode: true }), "foo://EXAMPLE.com/p");
+    assert.strictEqual(url.format(new URL("foo://xn--0zwm56d.example/p"), { unicode: true }), "foo://测试.example/p");
+    assert.strictEqual(
+      url.format(new URL("foo://XN--0ZWM56D.EXAMPLE/p"), { unicode: true }),
+      "foo://XN--0ZWM56D.EXAMPLE/p",
+    );
+    assert.strictEqual(
+      url.format(new URL("foo://Sub.xn--0zwm56d.Example/p"), { unicode: true }),
+      "foo://Sub.测试.Example/p",
+    );
   });
 });
