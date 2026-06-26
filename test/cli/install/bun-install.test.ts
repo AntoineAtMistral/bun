@@ -2,7 +2,6 @@ import { file, listen, Socket, spawn, write } from "bun";
 import { afterAll, beforeAll, describe, expect, it, jest, setDefaultTimeout, test } from "bun:test";
 import { existsSync, readlinkSync, realpathSync, statSync, symlinkSync } from "fs";
 import { access, cp, exists, mkdir, readlink, rm, stat, writeFile } from "fs/promises";
-import { tmpdir } from "os";
 import {
   bunEnv,
   bunExe,
@@ -18,6 +17,7 @@ import {
   toBeWorkspaceLink,
   toHaveBins,
 } from "harness";
+import { tmpdir } from "os";
 import { join, resolve, sep } from "path";
 import {
   createTestContext,
@@ -9817,8 +9817,7 @@ it.skipIf(isWindows)("names the install cache directory when it cannot be writte
 // to live on a different filesystem than the cache directory. `/dev/shm` is a
 // tmpfs on Linux, so verify at collection time that it really is a distinct
 // device from where `tempDir()` roots its fixtures; skip otherwise.
-const shmIsSeparateDevice =
-  !isWindows && existsSync("/dev/shm") && statSync("/dev/shm").dev !== statSync(tmpdir()).dev;
+const shmIsSeparateDevice = !isWindows && existsSync("/dev/shm") && statSync("/dev/shm").dev !== statSync(tmpdir()).dev;
 
 it.skipIf(!shmIsSeparateDevice)(
   "names the install cache directory when the rename out of its .tmp fallback fails",
