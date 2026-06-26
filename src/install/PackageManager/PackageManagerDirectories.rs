@@ -288,11 +288,9 @@ fn get_temporary_directory_run(manager: &mut PackageManager) -> TemporaryDirecto
 
                     continue 'brk;
                 }
-                bun_core::pretty_errorln!(
-                    "<r><red>error<r>: {} accessing temporary directory. Please set <b>$BUN_TMPDIR<r> or <b>$BUN_INSTALL<r>",
-                    err2.name()
-                );
-                Global::crash();
+                // `tried_dot_tmp`, so `tempdir` is `<cache>/.tmp`: the cache
+                // directory is what isn't writable, not the system tempdir.
+                crash_cache_directory_unwritable(cache_directory_path, err2)
             }
         };
         let _ = file.close(); // close error is non-actionable
@@ -317,11 +315,9 @@ fn get_temporary_directory_run(manager: &mut PackageManager) -> TemporaryDirecto
                     continue 'brk;
                 }
 
-                bun_core::pretty_errorln!(
-                    "<r><red>error<r>: {} accessing temporary directory. Please set <b>$BUN_TMPDIR<r> or <b>$BUN_INSTALL<r>",
-                    bun_fmt::s(err.name())
-                );
-                Global::crash();
+                // `tried_dot_tmp`, so the rename source is `<cache>/.tmp` and
+                // the destination is always the cache directory itself.
+                crash_cache_directory_unwritable(cache_directory_path, err.into())
             }
         }
         let _ = cache_directory.delete_file_z(tmpname);
