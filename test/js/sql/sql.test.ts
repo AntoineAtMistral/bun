@@ -795,6 +795,8 @@ if (isDockerEnabled()) {
       // A query longer than idle_timeout must not be killed by the idle timer (#30646).
       expect(await sql`select pg_sleep(2)`).toEqual([{ pg_sleep: "" }]);
       expect(onconnect).toHaveBeenCalled();
+      // The timer must not have fired while the query was in flight.
+      expect(onclose).not.toHaveBeenCalled();
       // After the query returns, the connection is idle — the timer fires shortly after.
       const err = await onClosePromise.promise;
       expect(err).toBeInstanceOf(SQL.SQLError);
@@ -869,6 +871,8 @@ if (isDockerEnabled()) {
       const [{ pid: pidBefore }] = await sql`select pg_backend_pid() as pid`;
       const result = await sql`select pg_sleep(3), 42 as x`;
       expect(result[0].x).toBe(42);
+      // The lifetime timer must not have killed the query mid-flight.
+      expect(onclose).not.toHaveBeenCalled();
 
       // Once the query returns, the connection is idle and the deferred lifetime
       // timer closes it. The pool should then reconnect on a fresh backend.
@@ -898,6 +902,8 @@ if (isDockerEnabled()) {
       const [{ pid: pidBefore }] = await sql`select pg_backend_pid() as pid`;
       const result = await sql`select pg_sleep(3), 42 as x`;
       expect(result[0].x).toBe(42);
+      // The idle timer must not have killed the query mid-flight.
+      expect(onclose).not.toHaveBeenCalled();
 
       // Once the query returns, the connection is idle and the timer fires, closing it.
       const err = await onClosePromise.promise;

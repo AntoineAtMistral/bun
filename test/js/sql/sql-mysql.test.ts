@@ -326,6 +326,8 @@ if (isDockerEnabled()) {
           // Before the fix this rejected with ERR_MYSQL_LIFETIME_TIMEOUT.
           const result = await sql`select SLEEP(3) as s, 42 as x`;
           expect(result[0].x).toBe(42);
+          // The lifetime timer must not have killed the query mid-flight.
+          expect(onclose).not.toHaveBeenCalled();
 
           await onClosePromise.promise;
           expect(onclose).toHaveBeenCalledTimes(1);
