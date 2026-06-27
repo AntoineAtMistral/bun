@@ -48,7 +48,10 @@ const QUERY_RESPONSE = Buffer.concat([
  * can't produce duplicate responses. `onClose` observes the server-side socket
  * close.
  */
-async function startMockServer(queryDelayMs: number, onClose?: () => void): Promise<{ port: number; stop: () => void }> {
+async function startMockServer(
+  queryDelayMs: number,
+  onClose?: () => void,
+): Promise<{ port: number; stop: () => void }> {
   const timers = new Set<Timer>();
   const { port, server } = await listeningServer(socket => {
     // 'startup' -> reply HANDSHAKE to any first packet;
