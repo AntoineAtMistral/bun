@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { tls as COMMON_CERT } from "harness";
+import { bunEnv, bunExe, tls as COMMON_CERT } from "harness";
 import constants from "node:constants";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
@@ -225,54 +225,59 @@ test("tls.Server treats a non-Buffer 'resumeSession' reply as a cache miss", asy
 });
 
 // A synchronously throwing 'newSession' listener must not leave the deferred
-// 'secureConnection' pending forever (the handshake timer would be the only
-// way out). Node lets the throw escape as an uncaughtException; Bun's native
-// dispatch catches it, so the deferral has to be undone before rethrowing.
-test("a throwing 'newSession' listener does not defer secureConnection forever", async () => {
-  let threw = 0;
-  const server = tls.createServer({
-    key: COMMON_CERT.key,
-    cert: COMMON_CERT.cert,
-    maxVersion: "TLSv1.2",
-    secureOptions: constants.SSL_OP_NO_TICKET,
-  });
-  server.on("newSession", () => {
-    threw++;
-    throw new Error("newSession listener boom");
-  });
-  const secure = Promise.withResolvers<void>();
-  server.on("secureConnection", s => {
-    s.end("ok");
-    secure.resolve();
-  });
-
-  const { promise: listening, resolve: onListen, reject: onListenErr } = Promise.withResolvers<void>();
-  server.on("error", onListenErr);
-  server.listen(0, "127.0.0.1", onListen);
-  await listening;
-  const port = (server.address() as AddressInfo).port;
-  try {
-    const { promise: clientClosed, resolve: onClose, reject: onClientErr } = Promise.withResolvers<void>();
-    const c = tls.connect({
-      port,
-      host: "127.0.0.1",
-      rejectUnauthorized: false,
+// 'secureConnection' pending forever, and the throw must still surface: Node
+// raises it as an uncaughtException, so Bun does too. Runs in a subprocess
+// because an uncaughtException (even a handled one) fails the test runner.
+test("a throwing 'newSession' listener completes the handshake and surfaces the throw", async () => {
+  const script = `
+    const tls = require("node:tls");
+    const constants = require("node:constants");
+    const out = [];
+    process.on("uncaughtException", e => out.push("uncaught:" + e.message));
+    const server = tls.createServer({
+      key: process.env.TLS_KEY,
+      cert: process.env.TLS_CERT,
       maxVersion: "TLSv1.2",
       secureOptions: constants.SSL_OP_NO_TICKET,
     });
-    c.on("error", onClientErr);
-    c.on("close", () => onClose());
-    c.resume();
-    // Without the throw recovery the deferred handshake is never completed,
-    // so 'secureConnection' never fires and the server never ends the
-    // connection - both of these hang.
-    await secure.promise;
-    await clientClosed;
-    // The listener really ran (and threw) - 'newSession' fired exactly once.
-    expect(threw).toBe(1);
-  } finally {
-    server.close();
-  }
+    server.on("newSession", () => {
+      out.push("newSession");
+      throw new Error("newSession listener boom");
+    });
+    server.on("secureConnection", s => { out.push("secureConnection"); s.end("ok"); });
+    server.listen(0, "127.0.0.1", () => {
+      const c = tls.connect({
+        port: server.address().port,
+        host: "127.0.0.1",
+        rejectUnauthorized: false,
+        maxVersion: "TLSv1.2",
+        secureOptions: constants.SSL_OP_NO_TICKET,
+      });
+      c.on("error", e => out.push("clientError:" + e.message));
+      // An extra tick so the server's nextTick-raised uncaughtException has run.
+      c.on("close", () => process.nextTick(() => {
+        console.log(JSON.stringify(out));
+        server.close();
+      }));
+      c.resume();
+    });
+  `;
+  await using proc = Bun.spawn({
+    cmd: [bunExe(), "-e", script],
+    env: { ...bunEnv, TLS_KEY: COMMON_CERT.key, TLS_CERT: COMMON_CERT.cert },
+    stderr: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([proc.stdout.text(), proc.stderr.text(), proc.exited]);
+  // Without the recovery the deferred handshake never completes: the client
+  // never closes, nothing is printed, and the process hangs. The exact
+  // multiset (order-independent: 'secureConnection' and the re-raised throw
+  // are delivered by different turns) proves both that the listener's throw
+  // was surfaced AND that it did not error the client or wedge the server.
+  expect({ out: JSON.parse(stdout.trim()).toSorted(), stderr: stderr.includes("boom"), exitCode }).toEqual({
+    out: ["newSession", "secureConnection", "uncaught:newSession listener boom"].toSorted(),
+    stderr: false,
+    exitCode: 0,
+  });
 });
 
 // A server-side TLSSocket over a generic Duplex (no native fd) drives TLS

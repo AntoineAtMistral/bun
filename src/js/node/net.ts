@@ -813,14 +813,14 @@ const ServerHandlers: SocketHandler<NetSocket> = {
       if (self.destroyed || !self._handle) return;
       completeServerHandshake(self, deferred.verifyError);
     };
-    // A throwing listener must not leave secureConnection deferred forever;
-    // complete the handshake, then rethrow so the native dispatch routes the
-    // error through the socket's error handler.
+    // A throwing listener must not leave secureConnection deferred forever:
+    // complete the handshake, then surface the throw as an uncaughtException
+    // the way Node does for a 'newSession' listener that throws.
     try {
       server.emit("newSession", sessionId, sessionData, done);
     } catch (err) {
       done();
-      throw err;
+      process.nextTick(() => reportError(err));
     }
   },
   // A TLS <= 1.2 client offered a session_id: the handshake is suspended on

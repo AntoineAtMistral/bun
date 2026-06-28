@@ -1886,11 +1886,9 @@ struct us_socket_t *us_internal_ssl_on_data(struct us_socket_t *s, char *data, i
    * per-thread error queue so a captured reason cannot belong to another
    * socket on the same thread. */
   ERR_clear_error();
-  /* An accepted node:tls socket's kind is only assigned after its SSL was
-   * attached, so the is-a-bun-socket marker the session/keylog callbacks key
-   * on may still be missing. Set it lazily before the SSL_read that will
-   * fire those callbacks. This is a real us_socket_t, so the session-id
-   * lookup may suspend its handshake too (us_ssl_can_suspend_ex_idx). */
+  /* An accepted node:tls socket's kind is only stamped after SSL attach, so
+   * the markers the session/keylog/get_session callbacks key on may still be
+   * missing; set them before SSL_read. A real us_socket_t may suspend. */
   if (s->ssl && us_socket_kind(s) == BUN_SOCKET_KIND_BUN_SOCKET_TLS &&
       !SSL_get_ex_data(s->ssl, us_ssl_is_socket_ex_idx)) {
     us_ex_idx_ensure();
@@ -1948,16 +1946,9 @@ restart:
 
     if (just_read <= 0) {
       int err = SSL_get_error(s_ssl(s), just_read);
-      /* SSL_ERROR_PENDING_CERTIFICATE: the handshake is suspended waiting
-       * for an async SNICallback (us_select_cert_cb returned retry).
-       * SSL_ERROR_PENDING_SESSION: the server session-id lookup suspended
-       * it (get_session_cb returned the magic pending pointer). Both are
-       * treated like WANT_READ - stop the read loop, deliver whatever was
-       * decrypted, and park the socket. The SNI case is resumed by
-       * us_socket_sni_resolve (its JS dispatch already ran inside
-       * select_cert_cb); the session case still needs its 'resumeSession'
-       * dispatch, which the loop tail runs via ssl_dispatch_pending_resume
-       * once this SSL_read stack has unwound. */
+      /* PENDING_CERTIFICATE (async SNICallback) and PENDING_SESSION (server
+       * session-id lookup) park the socket like WANT_READ; the session case's
+       * 'resumeSession' dispatch runs from the loop tail once this unwinds. */
       if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE &&
           err != SSL_ERROR_PENDING_CERTIFICATE &&
           err != SSL_ERROR_PENDING_SESSION) {
@@ -2019,13 +2010,9 @@ restart:
          * loads. The save/restore below makes this safe even if the JS
          * callback writes; with read==0 the buffer is empty anyway. */
         if (s->ssl_handshake_state == HANDSHAKE_PENDING && SSL_is_init_finished(s_ssl(s))) {
-          /* A TLS <= 1.2 server's new-session callback parks the fresh
-           * session from inside the SSL_read that just finished the
-           * handshake. Node emits server 'newSession' BEFORE
-           * 'secureConnection' (the session-cache store precedes the
-           * connection listener), so deliver it before the handshake
-           * callback. The client side parks its 'session' event until
-           * secureConnect in JS, so its observable order is unchanged. */
+          /* Node emits server 'newSession' BEFORE 'secureConnection' (the
+           * cache store precedes the connection listener), so flush the
+           * session this SSL_read parked before the handshake callback. */
           ssl_flush_pending_session(s);
           ssl_flush_pending_keylog(s);
           if (ssl_gone(s)) return NULL;
@@ -2063,11 +2050,9 @@ restart:
       char *saved_input = loop_ssl_data->ssl_read_input;
       unsigned int saved_length = loop_ssl_data->ssl_read_input_length;
       unsigned int saved_offset = loop_ssl_data->ssl_read_input_offset;
-      /* Same ordering as the no-app-data branch above: a TLS <= 1.2 server
-       * whose client False-Starts (app data piggybacked on CKE+CCS+Finished)
-       * parks the new session in this very SSL_read, and 'newSession' must
-       * reach JS before the handshake callback emits secureConnection. The
-       * client side parks its 'session' until secureConnect in JS. */
+      /* False-Start branch, same ordering as above: the session this
+       * SSL_read parked must reach 'newSession' before the handshake
+       * callback emits secureConnection. */
       ssl_flush_pending_session(s);
       ssl_flush_pending_keylog(s);
       if (ssl_gone(s)) return NULL;
@@ -2120,10 +2105,9 @@ restart:
   ssl_flush_pending_keylog(s);
   if (ssl_gone(s)) return NULL;
 
-  /* The server session-id lookup may have suspended the handshake mid-read
-   * (SSL_ERROR_PENDING_SESSION). Its JS 'resumeSession' dispatch could not
-   * run from inside SSL_read; run it now that the stack has unwound. A no-op
-   * unless get_session_cb parked a lookup. */
+  /* A session-id lookup that suspended this read (PENDING_SESSION) could not
+   * dispatch 'resumeSession' from inside SSL_read; run it now that the stack
+   * has unwound. No-op unless get_session_cb parked a lookup. */
   ssl_dispatch_pending_resume(s);
   if (ssl_gone(s)) return NULL;
 
