@@ -1,11 +1,11 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { tls as COMMON_CERT } from "harness";
-import tls from "node:tls";
-import net from "node:net";
 import constants from "node:constants";
-import { Duplex } from "node:stream";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
+import net from "node:net";
+import { Duplex } from "node:stream";
+import tls from "node:tls";
 
 // node:tls server 'newSession' / 'resumeSession' are the documented hooks for
 // an external TLS session cache. They are session-ID-based, so they only fire

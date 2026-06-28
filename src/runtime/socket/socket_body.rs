@@ -778,7 +778,11 @@ impl<const SSL: bool> NewSocket<SSL> {
         if socket.is_detached() {
             return Ok(JSValue::UNDEFINED);
         }
-        let data = if args.len >= 1 { args.ptr[0] } else { JSValue::UNDEFINED };
+        let data = if args.len >= 1 {
+            args.ptr[0]
+        } else {
+            JSValue::UNDEFINED
+        };
         if data.is_undefined_or_null() {
             socket.session_resolve(&[]);
             return Ok(JSValue::UNDEFINED);
