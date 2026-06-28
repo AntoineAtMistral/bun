@@ -290,6 +290,8 @@ describe("Bun.serve HTML manifest", () => {
       stderr: "pipe",
       stdin: "ignore",
     });
+    // Drain stderr as it arrives so the child can never block on a full pipe.
+    const serverStderr = serverProc.stderr.text();
 
     let port: number | undefined;
     const reader = serverProc.stdout.getReader();
@@ -314,7 +316,11 @@ describe("Bun.serve HTML manifest", () => {
     }
 
     reader.releaseLock();
-    expect(port).toBeDefined();
+    if (port === undefined) {
+      // stdout closed without a PORT= line, so the server already exited and
+      // the stderr stream is complete.
+      throw new Error(`server exited before printing its port:\n${await serverStderr}`);
+    }
 
     // entity-tag = [ weak ] opaque-tag ; opaque-tag = DQUOTE *etagc DQUOTE
     const entityTag = /^(W\/)?"[!#-~\x80-\xff]*"$/;
