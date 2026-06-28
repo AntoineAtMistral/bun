@@ -1179,9 +1179,9 @@ pub mod ssl_wrapper {
             if Self::r(this).handlers.on_session.is_some() {
                 loop {
                     let Some(ssl) = Self::r(this).ssl else { return };
+                    let mut id_len: c_int = 0;
                     // SAFETY: ssl is live (checked above); buffer is writable
                     // for BUFFER_SIZE bytes, which covers the 64 KB parking cap.
-                    let mut id_len: c_int = 0;
                     let len = unsafe {
                         us_ssl_pop_pending_session(
                             ssl.as_ptr(),
