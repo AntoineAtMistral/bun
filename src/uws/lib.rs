@@ -342,11 +342,9 @@ pub mod ssl_wrapper {
         pub write: fn(T, &[u8]),
         pub on_data: fn(T, &[u8]),
         pub on_close: fn(T),
-        /// A new resumable TLS session arrived (serialized SSL_SESSION bytes,
-        /// plus its `SSL_SESSION_get_id` bytes) - node's `'session'` event
-        /// (and the server's `'newSession'`). `None` opts the SSL out of
-        /// session parking entirely (fetch / WebSocket tunnels have no
-        /// consumer).
+        /// A new resumable TLS session: serialized SSL_SESSION bytes plus its
+        /// `SSL_SESSION_get_id` bytes (node's `'session'` / server
+        /// `'newSession'`). `None` opts the SSL out of session parking.
         pub on_session: Option<fn(T, &[u8], &[u8])>,
         /// An NSS key-log line (with the trailing newline node appends) -
         /// node's `'keylog'` event. Same opt-in rules as `on_session`.

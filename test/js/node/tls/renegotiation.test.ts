@@ -281,13 +281,9 @@ it("should terminate the connection when the peer exceeds the renegotiation limi
 });
 
 it("Bun.connect honors tls.clientRenegotiationLimit on the native socket path", async () => {
-  // The test above exercises the SSLWrapper (tls-over-duplex) path; this one
-  // exercises the uSockets C path that a plain `Bun.connect({ tls })` takes,
-  // which is the only consumer of `SSLConfig::as_usockets()`.
-  // `clientRenegotiationLimit` is a public `TLSOptions` field that must
-  // reach `us_reneg_policy` through that bridge: with it dropped, every
-  // client silently falls back to the hardcoded default of 3, so a limit of
-  // 1 against a server that renegotiates twice would let both through.
+  // Covers the uSockets `Bun.connect({ tls })` path: `clientRenegotiationLimit`
+  // must survive `SSLConfig::as_usockets()`, so limit=1 must reject the second
+  // renegotiation instead of falling back to the default limit of 3.
   await using attacker = Bun.spawn({
     cmd: [
       "node",
@@ -329,7 +325,7 @@ it("Bun.connect honors tls.clientRenegotiationLimit on the native socket path", 
   const { value } = await attacker.stdout.getReader().read();
   const port = Number(new TextDecoder().decode(value).trim());
 
-  const { promise: outcome, resolve } = Promise.withResolvers<string>();
+  const { promise: outcome, resolve, reject } = Promise.withResolvers<string>();
   let received = "";
   const sock = await Bun.connect({
     hostname: "127.0.0.1",
@@ -340,10 +336,14 @@ it("Bun.connect honors tls.clientRenegotiationLimit on the native socket path", 
         received += chunk.toString();
         if (received.includes("DONE")) resolve("got-response");
       },
+      // The expected teardown (limit exceeded) arrives as close(); a
+      // dispatched error() is an unexpected failure and must surface.
       close() {
         resolve("closed");
       },
-      error() {},
+      error(_s, err) {
+        reject(err);
+      },
     },
   });
   try {

@@ -1799,12 +1799,9 @@ impl<const SSL: bool> NewSocket<SSL> {
         Ok(())
     }
 
-    /// A new resumable TLS session arrived (the peer's NewSessionTicket was
-    /// processed during an earlier `SSL_read`, or a TLS <= 1.2 server minted
-    /// one). Hands the serialized session (and its `SSL_SESSION_get_id`) to
-    /// the JS `session` handler, mirroring Node's `onnewsession` callback.
-    /// Dispatched from `ssl_flush_pending_session()` after the SSL stack has
-    /// unwound, so the JS handler may safely destroy the socket.
+    /// A new resumable TLS session: hands the serialized `SSL_SESSION` and
+    /// its `SSL_SESSION_get_id` to the JS `session` handler after the SSL
+    /// stack unwinds, so the handler may safely destroy the socket.
     ///
     /// # Safety
     /// `this` points at a live `NewSocket`; JS-thread only.
@@ -1856,12 +1853,9 @@ impl<const SSL: bool> NewSocket<SSL> {
         Ok(())
     }
 
-    /// A TLS <= 1.2 server handshake is suspended on the external session-id
-    /// lookup (node:tls server `'resumeSession'`). Hands the offered
-    /// `session_id` to the JS `resumeSession` handler; the handler must call
-    /// `handle.resolveSession(dataOrNull)` to complete the handshake. A
-    /// missing handler resolves immediately as a cache miss so the handshake
-    /// never stalls.
+    /// Server handshake suspended on the external session-id lookup: hands
+    /// the offered id to the JS `resumeSession` handler, which must call
+    /// `resolveSession(dataOrNull)`. No handler resolves as a cache miss.
     ///
     /// # Safety
     /// `this` points at a live `NewSocket`; JS-thread only.
