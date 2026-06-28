@@ -975,6 +975,10 @@ pub unsafe fn __bun_fire_timer(t: *mut EventLoopTimer, now: *const ElTimespec, v
                 AbortSignalTimeout::run(c, vm)
             })
         }
+        EventLoopTimerTag::FetchConnectAttempt => {
+            timer_arm!(FetchTasklet, connect_attempt_timer, |c, _now, _vm| (*c)
+                .on_connect_attempt_timer())
+        }
         EventLoopTimerTag::DateHeaderTimer => {
             timer_arm!(DateHeaderTimer, event_loop_timer, |c, _now, vm| (*c)
                 .run(&mut *vm))

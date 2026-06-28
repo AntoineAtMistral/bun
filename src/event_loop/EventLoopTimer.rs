@@ -203,6 +203,8 @@ pub enum Tag {
     BunTest,
     EventLoopDelayMonitor,
     CronJob,
+    /// RFC 8305 happy-eyeballs connection-attempt delay on `FetchTasklet`.
+    FetchConnectAttempt,
 }
 
 impl Tag {
