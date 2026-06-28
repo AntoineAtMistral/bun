@@ -1683,6 +1683,9 @@ it("survives closing a socket and re-entering the event loop from its own data c
   });
 
   const [stdout, stderr, exitCode] = await Promise.all([proc.stdout.text(), proc.stderr.text(), proc.exited]);
-  expect({ stdout: stdout.trim(), exitCode }).toEqual({ stdout: "SURVIVED 20", exitCode: 0 });
-  void stderr;
+  expect({ stdout: stdout.trim(), stderr, exitCode }).toEqual({
+    stdout: "SURVIVED 20",
+    stderr: expect.any(String),
+    exitCode: 0,
+  });
 });
