@@ -206,7 +206,9 @@ impl us_socket_t {
         } else {
             (data.as_ptr(), data.len().min(c_int::MAX as usize) as c_int)
         };
-        c::us_socket_session_resolve(self, ptr, len);
+        // SAFETY: `ptr`/`len` come from the live `&[u8]` above (`len` is
+        // clamped to at most `data.len()`), or are null/0 for the miss case.
+        unsafe { c::us_socket_session_resolve(self, ptr, len) };
     }
 
     /// `SSL*` if TLS, else null. Use `get_fd()` for the descriptor.
@@ -516,7 +518,7 @@ mod c {
             ctx: *mut SslCtx,
             error: c_int,
         );
-        pub(super) safe fn us_socket_session_resolve(
+        pub(super) fn us_socket_session_resolve(
             s: &mut us_socket_t,
             data: *const u8,
             length: c_int,

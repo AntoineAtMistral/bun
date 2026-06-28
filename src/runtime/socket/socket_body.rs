@@ -790,6 +790,10 @@ impl<const SSL: bool> NewSocket<SSL> {
         // `as_array_buffer` returns a borrowed view into the live JS buffer;
         // `session_resolve` consumes it synchronously (d2i copies the bytes).
         let Some(bytes) = data.as_array_buffer(global) else {
+            // A suspended handshake must be completed on every exit or the
+            // connection hangs until handshakeTimeout: resolve as a cache
+            // miss first, then report the bad argument.
+            socket.session_resolve(&[]);
             return Err(global.throw_invalid_argument_type("resolveSession", "session", "Buffer"));
         };
         socket.session_resolve(bytes.byte_slice());

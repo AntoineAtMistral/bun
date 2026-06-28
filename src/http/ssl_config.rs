@@ -207,11 +207,18 @@ impl SSLConfig {
         if !self.ssl_ciphers.is_null() {
             ctx_opts.ssl_ciphers = self.ssl_ciphers;
         }
-        ctx_opts.secure_options = self.secure_options;
         ctx_opts.request_cert = self.request_cert;
         ctx_opts.reject_unauthorized = self.reject_unauthorized;
         ctx_opts.ssl_min_version = self.ssl_min_version;
         ctx_opts.ssl_max_version = self.ssl_max_version;
+        // `secureOptions` (the SSL_OP_* bit flags, e.g. SSL_OP_NO_TICKET).
+        // `us_ssl_ctx_from_options` applies them with SSL_CTX_set_options.
+        ctx_opts.secure_options = self.secure_options;
+        // Unconditional: a non-zero guard would drop `{limit: 0, window: N}`
+        // ("disable renegotiation"). (0,0) is indistinguishable from unset
+        // (both default to 0), so openssl.c keeps the 3/600 fallback for it.
+        ctx_opts.client_renegotiation_limit = self.client_renegotiation_limit;
+        ctx_opts.client_renegotiation_window = self.client_renegotiation_window;
 
         ctx_opts
     }

@@ -143,10 +143,9 @@ const khandlers = Symbol("khandlers");
 const kclosed = Symbol("closed");
 const kended = Symbol("ended");
 const kpendingSession = Symbol("pendingSession");
-// A server-side handshake completion deferred because the 'newSession'
-// listener has not invoked its callback yet (Node holds the connection's
-// secureConnection until the external session store acknowledges). Holds the
-// verifyError the deferred completion needs; `undefined` = nothing deferred.
+// A server handshake completion deferred until the 'newSession' listener's
+// done callback runs (Node holds secureConnection for the external session
+// store). Holds the verifyError it needs; `undefined` = nothing deferred.
 const kdeferredSecure = Symbol("deferredSecure");
 const kSNIError = Symbol("kSNIError");
 const kALPNError = Symbol("kALPNError");
@@ -600,15 +599,13 @@ function onSNIResolution(state, err, context) {
   }
 }
 
-// The success tail of the server-side handshake callback: client-certificate
-// authorization, then secureConnection/secure/secureConnect. Factored out of
-// ServerHandlers.handshake so a pending 'newSession' can defer it until the
-// listener's done callback runs (Node's _newSessionPending -> _finishInit).
+// The success tail of the server handshake: client-cert authorization, then
+// secureConnection/secure/secureConnect. Split out so a pending 'newSession'
+// can defer it until its done callback runs (Node's _newSessionPending).
 function completeServerHandshake(self, verifyError) {
-  // The handshake timer is cleared here (not at the top of the handshake
-  // callback) so a 'newSession' listener that never invokes its done
-  // callback is still bounded by handshakeTimeout instead of holding the
-  // connection open forever. The failure branch clears it separately.
+  // Cleared here, not at the top of the handshake callback, so a 'newSession'
+  // listener that never invokes its done callback is still bounded by
+  // handshakeTimeout. The failure branch clears it separately.
   if (self[khandshakeTimer]) {
     clearTimeout(self[khandshakeTimer]);
     self[khandshakeTimer] = undefined;
@@ -793,11 +790,9 @@ const ServerHandlers: SocketHandler<NetSocket> = {
       handle.onconnection(0, socket);
     }
   },
-  // A new resumable session was minted for an accepted connection (TLS <= 1.2
-  // server; BoringSSL's TLS 1.3 server is stateless and never reaches here).
-  // Node: emit 'newSession' on the tls.Server with (sessionId, sessionData,
-  // done); the connection's 'secureConnection' is HELD until `done` runs, so
-  // an external session store is populated before the connection is usable.
+  // A resumable session was minted for an accepted connection (TLS <= 1.2;
+  // BoringSSL's TLS 1.3 server is stateless). Emit 'newSession' on the Server;
+  // 'secureConnection' is HELD until `done` so the external store is populated.
   session(socket, sessionData, sessionId) {
     const self = socket.data;
     if (!self) return;
@@ -820,11 +815,9 @@ const ServerHandlers: SocketHandler<NetSocket> = {
     };
     server.emit("newSession", sessionId, sessionData, done);
   },
-  // A TLS <= 1.2 client offered a session_id for resumption and the native
-  // handshake is suspended on the external-cache lookup. Node: emit
-  // 'resumeSession' on the tls.Server with (sessionId, callback); the
-  // callback's (err, sessionData) completes the lookup. A server with no
-  // listener resolves immediately as a miss so the handshake never stalls.
+  // A TLS <= 1.2 client offered a session_id: the handshake is suspended on
+  // the external-cache lookup until the 'resumeSession' callback replies. With
+  // no listener, resolve immediately as a miss so the handshake never stalls.
   resumeSession(socket, sessionId) {
     const self = socket.data;
     const server = self?.server;
@@ -843,7 +836,9 @@ const ServerHandlers: SocketHandler<NetSocket> = {
         if (!self.destroyed) self.destroy(err);
         return;
       }
-      socket.resolveSession(sessionData || null);
+      // Node's loadSession treats a non-Buffer sessionData as a miss (full
+      // handshake) rather than throwing; resolveSession requires a Buffer.
+      socket.resolveSession(Buffer.isBuffer(sessionData) ? sessionData : null);
     });
   },
   handshake(socket, success, verifyError) {

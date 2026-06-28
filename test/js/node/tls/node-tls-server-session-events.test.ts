@@ -137,15 +137,22 @@ test("tls.Server defers secureConnection until the async 'newSession' callback a
 });
 
 // The split-out repro: a server with the listeners attached and a
-// default-version (TLS 1.3) client. BoringSSL's TLS 1.3 server is stateless
-// (it never invokes the session-ID cache callbacks), so the events cannot
-// fire there; this pins down that attaching the listeners is harmless and the
-// connection still completes.
-test("tls.Server with 'newSession'/'resumeSession' listeners accepts a TLS 1.3 client", async () => {
+// default-version (TLS 1.3) client. BoringSSL's TLS 1.3 server is stateless,
+// so the session-ID cache hooks must never fire: assert that (not just that
+// the connection completes), pinning the documented no-op contract.
+test("tls.Server session-cache listeners are inert for a TLS 1.3 client", async () => {
   let secure = 0;
+  let newSession = 0;
+  let resumeSession = 0;
   const server = tls.createServer({ key: COMMON_CERT.key, cert: COMMON_CERT.cert });
-  server.on("newSession", (_id, _data, cb) => cb());
-  server.on("resumeSession", (_id, cb) => cb(null, null));
+  server.on("newSession", (_id, _data, cb) => {
+    newSession++;
+    cb();
+  });
+  server.on("resumeSession", (_id, cb) => {
+    resumeSession++;
+    cb(null, null);
+  });
   server.on("secureConnection", s => {
     secure++;
     s.end("ok");
@@ -160,12 +167,58 @@ test("tls.Server with 'newSession'/'resumeSession' listeners accepts a TLS 1.3 c
     const { promise, resolve, reject } = Promise.withResolvers<void>();
     const c = tls.connect({ port, host: "127.0.0.1", rejectUnauthorized: false }, resolve);
     c.on("error", reject);
+    c.on("close", hadError => reject(new Error(`socket closed before secureConnect (hadError=${hadError})`)));
     c.resume();
     await promise;
     const closed = once(c, "close");
     c.end();
     await closed;
-    expect(secure).toBe(1);
+    expect({ secure, newSession, resumeSession }).toEqual({ secure: 1, newSession: 0, resumeSession: 0 });
+  } finally {
+    server.close();
+  }
+});
+
+// A 'resumeSession' callback that replies with a truthy non-Buffer (a Redis
+// client without return_buffers hands back a string) must behave like Node's
+// loadSession: treated as a cache miss, never a wedged handshake.
+test("tls.Server treats a non-Buffer 'resumeSession' reply as a cache miss", async () => {
+  let newSession = 0;
+  let resumeSession = 0;
+
+  const server = tls.createServer({
+    key: COMMON_CERT.key,
+    cert: COMMON_CERT.cert,
+    maxVersion: "TLSv1.2",
+    secureOptions: constants.SSL_OP_NO_TICKET,
+  });
+  server.on("newSession", (_id, _data, cb) => {
+    newSession++;
+    cb();
+  });
+  server.on("resumeSession", (_id, cb) => {
+    resumeSession++;
+    // Asynchronously reply with the session bytes as a STRING, not a Buffer.
+    setImmediate(() => cb(null, "definitely not a Buffer"));
+  });
+  server.on("secureConnection", s => s.end("ok"));
+
+  const { promise: listening, resolve: onListen, reject: onListenErr } = Promise.withResolvers<void>();
+  server.on("error", onListenErr);
+  server.listen(0, "127.0.0.1", onListen);
+  await listening;
+  const port = (server.address() as AddressInfo).port;
+  try {
+    const session1 = await connectOnce(port, undefined);
+    expect(session1).toBeInstanceOf(Buffer);
+    // The non-Buffer reply is a miss: the second handshake completes as a
+    // FULL handshake (mints a fresh session) instead of hanging forever.
+    const reused = await connectOnce(port, session1);
+    expect({ reused, newSession, resumeSession }).toEqual({
+      reused: false,
+      newSession: 2,
+      resumeSession: 1,
+    });
   } finally {
     server.close();
   }
@@ -248,6 +301,11 @@ async function connectOnce(port: number, session: Buffer | undefined): Promise<a
     if (!session) resolve(s);
   });
   c.on("error", reject);
+  // A clean peer teardown before the awaited condition must FAIL the test
+  // immediately, not hang it until the test timeout.
+  c.on("close", hadError =>
+    reject(new Error(`socket closed before ${session ? "secureConnect" : "the 'session' event"} (hadError=${hadError})`)),
+  );
   c.resume();
   const result = await promise;
   const closed = once(c, "close");
