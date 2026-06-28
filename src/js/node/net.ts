@@ -834,7 +834,7 @@ const ServerHandlers: SocketHandler<NetSocket> = {
       return;
     }
     let once = false;
-    server.emit("resumeSession", sessionId, (err, sessionData) => {
+    const onresume = (err, sessionData) => {
       if (once) return;
       once = true;
       // Node destroys the socket when the lookup errors; an invalid or
@@ -847,7 +847,16 @@ const ServerHandlers: SocketHandler<NetSocket> = {
       // Node's loadSession treats a non-Buffer sessionData as a miss (full
       // handshake) rather than throwing; resolveSession requires a Buffer.
       socket.resolveSession(Buffer.isBuffer(sessionData) ? sessionData : null);
-    });
+    };
+    // A throwing listener must not leave the handshake suspended: resolve as
+    // a miss, then surface the throw as an uncaughtException the way Node
+    // does (same as the 'newSession' handler above).
+    try {
+      server.emit("resumeSession", sessionId, onresume);
+    } catch (err) {
+      onresume(null, null);
+      process.nextTick(() => reportError(err));
+    }
   },
   handshake(socket, success, verifyError) {
     const self = socket.data;

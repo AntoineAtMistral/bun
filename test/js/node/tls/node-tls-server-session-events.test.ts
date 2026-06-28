@@ -283,6 +283,83 @@ test("a throwing 'newSession' listener completes the handshake and surfaces the 
   });
 });
 
+// Same contract for a synchronously throwing 'resumeSession' listener: the
+// suspended session-id lookup must resolve as a miss (the second connection
+// still completes, as a FULL handshake that mints a second session) and the
+// throw must surface as an uncaughtException like Node, not be silently
+// dropped. Runs in a subprocess for the same reason as the test above.
+test("a throwing 'resumeSession' listener completes the handshake and surfaces the throw", async () => {
+  const script = `
+    const tls = require("node:tls");
+    const constants = require("node:constants");
+    const out = [];
+    let newSessions = 0;
+    process.on("uncaughtException", e => out.push("uncaught:" + e.message));
+    const server = tls.createServer({
+      key: process.env.TLS_KEY,
+      cert: process.env.TLS_CERT,
+      maxVersion: "TLSv1.2",
+      secureOptions: constants.SSL_OP_NO_TICKET,
+    });
+    server.on("newSession", (_id, _data, cb) => { out.push("newSession:" + ++newSessions); cb(); });
+    server.on("resumeSession", () => {
+      out.push("resumeSession");
+      throw new Error("resumeSession listener boom");
+    });
+    server.on("secureConnection", s => { out.push("secureConnection"); s.end("ok"); });
+    server.listen(0, "127.0.0.1", () => {
+      const opts = {
+        port: server.address().port,
+        host: "127.0.0.1",
+        rejectUnauthorized: false,
+        maxVersion: "TLSv1.2",
+        secureOptions: constants.SSL_OP_NO_TICKET,
+      };
+      const first = tls.connect(opts);
+      first.on("error", e => out.push("clientError1:" + e.message));
+      first.on("session", session => {
+        first.resume();
+        first.on("close", () => {
+          // Offer the minted session_id: 'resumeSession' fires and throws.
+          const second = tls.connect({ ...opts, session });
+          second.on("error", e => out.push("clientError2:" + e.message));
+          second.on("secureConnect", () => out.push("reused:" + second.isSessionReused()));
+          second.resume();
+          // An extra tick so the nextTick-raised uncaughtException has run.
+          second.on("close", () => process.nextTick(() => {
+            console.log(JSON.stringify(out));
+            server.close();
+          }));
+        });
+      });
+    });
+  `;
+  await using proc = Bun.spawn({
+    cmd: [bunExe(), "-e", script],
+    env: { ...bunEnv, TLS_KEY: COMMON_CERT.key, TLS_CERT: COMMON_CERT.cert },
+    stderr: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([proc.stdout.text(), proc.stderr.text(), proc.exited]);
+  // The second 'newSession:2' + 'reused:false' prove the throwing listener's
+  // lookup resolved as a real miss (a fresh full handshake, not a wedge or a
+  // spurious resumption), and 'uncaught:...' proves the throw surfaced.
+  // Without the try/catch the exception routes to ServerHandlers.error,
+  // which is a no-op for this shape, and the 'uncaught:' entry is missing.
+  expect({ out: JSON.parse(stdout.trim()).toSorted(), stderr, exitCode }).toEqual({
+    out: [
+      "newSession:1",
+      "secureConnection",
+      "resumeSession",
+      "uncaught:resumeSession listener boom",
+      "newSession:2",
+      "reused:false",
+      "secureConnection",
+    ].toSorted(),
+    stderr: expect.not.stringContaining("boom"),
+    exitCode: 0,
+  });
+});
+
 // A server-side TLSSocket over a generic Duplex (no native fd) drives TLS
 // through the in-process SSL wrapper, which has no handshake-suspension /
 // resume path. A TLS 1.2 client that offers a session_id must NOT wedge such
