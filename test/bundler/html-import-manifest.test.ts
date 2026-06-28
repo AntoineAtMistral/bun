@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bunEnv, bunExe, tempDirWithFiles } from "harness";
+import { bunEnv, bunExe, rmScope, tempDirWithFiles } from "harness";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { itBundled } from "./expectBundled";
@@ -433,6 +433,7 @@ console.log("About manifest:", aboutHtml);
       "index.html": `<!doctype html><html><body><script type="module" src="./app.ts"></script></body></html>`,
       "app.ts": `console.log("app");`,
     });
+    using cleanup = rmScope(dir);
 
     const out = join(dir, "out");
     const build = await Bun.build({ entrypoints: [join(dir, "server.ts")], outdir: out, target: "bun" });

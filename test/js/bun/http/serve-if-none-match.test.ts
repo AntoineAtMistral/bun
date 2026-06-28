@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { tempDirWithFiles } from "harness";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 
 describe("If-None-Match Support", () => {
@@ -272,10 +273,11 @@ describe("If-None-Match Support", () => {
   // in-memory StaticRoute the blocks above exercise.
   describe("File Routes", () => {
     let fileServer: Server;
+    let dir: string;
     const fileContent = "file route body";
 
     beforeAll(() => {
-      const dir = tempDirWithFiles("serve-file-if-none-match", {
+      dir = tempDirWithFiles("serve-file-if-none-match", {
         "asset.txt": fileContent,
       });
       fileServer = Bun.serve({
@@ -296,6 +298,7 @@ describe("If-None-Match Support", () => {
 
     afterAll(() => {
       fileServer.stop(true);
+      rmSync(dir, { recursive: true, force: true });
     });
 
     it("should return 304 when If-None-Match matches a file route's ETag", async () => {
