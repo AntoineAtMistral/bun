@@ -304,7 +304,9 @@ async function connectOnce(port: number, session: Buffer | undefined): Promise<a
   // A clean peer teardown before the awaited condition must FAIL the test
   // immediately, not hang it until the test timeout.
   c.on("close", hadError =>
-    reject(new Error(`socket closed before ${session ? "secureConnect" : "the 'session' event"} (hadError=${hadError})`)),
+    reject(
+      new Error(`socket closed before ${session ? "secureConnect" : "the 'session' event"} (hadError=${hadError})`),
+    ),
   );
   c.resume();
   const result = await promise;
