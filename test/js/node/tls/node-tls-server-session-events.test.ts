@@ -273,9 +273,12 @@ test("a throwing 'newSession' listener completes the handshake and surfaces the 
   // multiset (order-independent: 'secureConnection' and the re-raised throw
   // are delivered by different turns) proves both that the listener's throw
   // was surfaced AND that it did not error the client or wedge the server.
-  expect({ out: JSON.parse(stdout.trim()).toSorted(), stderr: stderr.includes("boom"), exitCode }).toEqual({
+  // stderr is asserted to not carry the throw (it was routed through
+  // uncaughtException), not to be empty: the debug/ASAN build emits benign
+  // warnings there.
+  expect({ out: JSON.parse(stdout.trim()).toSorted(), stderr, exitCode }).toEqual({
     out: ["newSession", "secureConnection", "uncaught:newSession listener boom"].toSorted(),
-    stderr: false,
+    stderr: expect.not.stringContaining("boom"),
     exitCode: 0,
   });
 });
