@@ -8,9 +8,8 @@ import { Duplex } from "node:stream";
 import tls from "node:tls";
 
 // node:tls server 'newSession' / 'resumeSession' are the documented hooks for
-// an external TLS session cache. They are session-ID-based, so they only fire
-// on a server for TLS <= 1.2 with tickets disabled (TLS 1.3 resumption is
-// stateless tickets only under BoringSSL).
+// an external TLS session cache. Session-ID-based, so servers fire them only
+// for TLS <= 1.2 without tickets (BoringSSL's TLS 1.3 server is stateless).
 test("tls.Server emits 'newSession' and 'resumeSession' for session-ID resumption", async () => {
   const cache = new Map<string, Buffer>();
   const events: string[] = [];
@@ -64,10 +63,9 @@ test("tls.Server emits 'newSession' and 'resumeSession' for session-ID resumptio
     expect(session1).toBeInstanceOf(Buffer);
 
     events.length = 0;
-    // Second connection offering the session_id: the server consults the
-    // external cache via 'resumeSession' SYNCHRONOUSLY; the callback supplies
-    // the stored session, so the handshake is a resumption and no new session
-    // is minted.
+    // Second connection offering the session_id: 'resumeSession' resolves the
+    // external-cache lookup SYNCHRONOUSLY with the stored session, so the
+    // handshake is a resumption and no new session is minted.
     expect(await connectOnce(port, session1)).toBe(true);
     expect(events).toEqual(["resumeSession", "secureConnection"]);
 
@@ -136,10 +134,9 @@ test("tls.Server defers secureConnection until the async 'newSession' callback a
   }
 });
 
-// The split-out repro: a server with the listeners attached and a
-// default-version (TLS 1.3) client. BoringSSL's TLS 1.3 server is stateless,
-// so the session-ID cache hooks must never fire: assert that (not just that
-// the connection completes), pinning the documented no-op contract.
+// The split-out repro: listeners attached and a default-version (TLS 1.3)
+// client. BoringSSL's TLS 1.3 server is stateless, so the session-ID cache
+// hooks must never fire; assert that to pin the documented no-op contract.
 test("tls.Server session-cache listeners are inert for a TLS 1.3 client", async () => {
   let secure = 0;
   let newSession = 0;
@@ -224,10 +221,9 @@ test("tls.Server treats a non-Buffer 'resumeSession' reply as a cache miss", asy
   }
 });
 
-// A synchronously throwing 'newSession' listener must not leave the deferred
-// 'secureConnection' pending forever, and the throw must still surface: Node
-// raises it as an uncaughtException, so Bun does too. Runs in a subprocess
-// because an uncaughtException (even a handled one) fails the test runner.
+// A throwing 'newSession' listener must not leave the deferred
+// 'secureConnection' pending; Node surfaces the throw as an uncaughtException.
+// Subprocess: an uncaughtException (even handled) fails the test runner.
 test("a throwing 'newSession' listener completes the handshake and surfaces the throw", async () => {
   const script = `
     const tls = require("node:tls");
@@ -268,14 +264,9 @@ test("a throwing 'newSession' listener completes the handshake and surfaces the 
     stderr: "pipe",
   });
   const [stdout, stderr, exitCode] = await Promise.all([proc.stdout.text(), proc.stderr.text(), proc.exited]);
-  // Without the recovery the deferred handshake never completes: the client
-  // never closes, nothing is printed, and the process hangs. The exact
-  // multiset (order-independent: 'secureConnection' and the re-raised throw
-  // are delivered by different turns) proves both that the listener's throw
-  // was surfaced AND that it did not error the client or wedge the server.
-  // stderr is asserted to not carry the throw (it was routed through
-  // uncaughtException), not to be empty: the debug/ASAN build emits benign
-  // warnings there.
+  // Without the recovery nothing is printed and the child hangs. toSorted():
+  // 'secureConnection' and the re-raised throw land on different turns. stderr
+  // only excludes the throw (debug/ASAN builds emit benign warnings there).
   expect({ out: JSON.parse(stdout.trim()).toSorted(), stderr, exitCode }).toEqual({
     out: ["newSession", "secureConnection", "uncaught:newSession listener boom"].toSorted(),
     stderr: expect.not.stringContaining("boom"),
@@ -283,11 +274,9 @@ test("a throwing 'newSession' listener completes the handshake and surfaces the 
   });
 });
 
-// Same contract for a synchronously throwing 'resumeSession' listener: the
-// suspended session-id lookup must resolve as a miss (the second connection
-// still completes, as a FULL handshake that mints a second session) and the
-// throw must surface as an uncaughtException like Node, not be silently
-// dropped. Runs in a subprocess for the same reason as the test above.
+// Same contract for a throwing 'resumeSession' listener: the suspended lookup
+// must resolve as a miss (the second leg still completes as a FULL handshake)
+// and the throw must surface as an uncaughtException. Subprocess: same reason.
 test("a throwing 'resumeSession' listener completes the handshake and surfaces the throw", async () => {
   const script = `
     const tls = require("node:tls");
@@ -317,20 +306,29 @@ test("a throwing 'resumeSession' listener completes the handshake and surfaces t
       };
       const first = tls.connect(opts);
       first.on("error", e => out.push("clientError1:" + e.message));
-      first.on("session", session => {
-        first.resume();
-        first.on("close", () => {
-          // Offer the minted session_id: 'resumeSession' fires and throws.
-          const second = tls.connect({ ...opts, session });
-          second.on("error", e => out.push("clientError2:" + e.message));
-          second.on("secureConnect", () => out.push("reused:" + second.isSessionReused()));
-          second.resume();
-          // An extra tick so the nextTick-raised uncaughtException has run.
-          second.on("close", () => process.nextTick(() => {
-            console.log(JSON.stringify(out));
-            server.close();
-          }));
-        });
+      let session = null;
+      first.on("session", s => { session = s; });
+      first.resume();
+      // Registered unconditionally so a first leg that errors or closes
+      // before minting a session still prints + exits (a failed multiset
+      // assertion in the parent) instead of hanging until the suite timeout.
+      first.on("close", () => {
+        if (!session) {
+          out.push("noSession");
+          console.log(JSON.stringify(out));
+          server.close();
+          return;
+        }
+        // Offer the minted session_id: 'resumeSession' fires and throws.
+        const second = tls.connect({ ...opts, session });
+        second.on("error", e => out.push("clientError2:" + e.message));
+        second.on("secureConnect", () => out.push("reused:" + second.isSessionReused()));
+        second.resume();
+        // An extra tick so the nextTick-raised uncaughtException has run.
+        second.on("close", () => process.nextTick(() => {
+          console.log(JSON.stringify(out));
+          server.close();
+        }));
       });
     });
   `;
@@ -340,11 +338,9 @@ test("a throwing 'resumeSession' listener completes the handshake and surfaces t
     stderr: "pipe",
   });
   const [stdout, stderr, exitCode] = await Promise.all([proc.stdout.text(), proc.stderr.text(), proc.exited]);
-  // The second 'newSession:2' + 'reused:false' prove the throwing listener's
-  // lookup resolved as a real miss (a fresh full handshake, not a wedge or a
-  // spurious resumption), and 'uncaught:...' proves the throw surfaced.
-  // Without the try/catch the exception routes to ServerHandlers.error,
-  // which is a no-op for this shape, and the 'uncaught:' entry is missing.
+  // 'newSession:2' + 'reused:false' prove the throwing lookup resolved as a
+  // real miss (a fresh full handshake, not a wedge), and 'uncaught:...' that
+  // the throw surfaced instead of routing to the no-op error handler.
   expect({ out: JSON.parse(stdout.trim()).toSorted(), stderr, exitCode }).toEqual({
     out: [
       "newSession:1",
@@ -360,12 +356,9 @@ test("a throwing 'resumeSession' listener completes the handshake and surfaces t
   });
 });
 
-// A server-side TLSSocket over a generic Duplex (no native fd) drives TLS
-// through the in-process SSL wrapper, which has no handshake-suspension /
-// resume path. A TLS 1.2 client that offers a session_id must NOT wedge such
-// a server: the session-id lookup falls through to a full handshake instead
-// of suspending with nothing to resume it. Without that gate, the second
-// connection here never completes.
+// A server-side TLSSocket over a generic Duplex drives TLS through the
+// in-process SSL wrapper, which has no handshake-suspension/resume path. A
+// TLS 1.2 session_id offer must fall through to a full handshake, not wedge.
 test("server-side TLSSocket over a generic duplex survives a TLS 1.2 session-id reconnect", async () => {
   const context = tls.createSecureContext({ key: COMMON_CERT.key, cert: COMMON_CERT.cert });
   const rawServer = net.createServer(conn => {
