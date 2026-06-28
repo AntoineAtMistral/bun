@@ -2063,6 +2063,14 @@ restart:
       char *saved_input = loop_ssl_data->ssl_read_input;
       unsigned int saved_length = loop_ssl_data->ssl_read_input_length;
       unsigned int saved_offset = loop_ssl_data->ssl_read_input_offset;
+      /* Same ordering as the no-app-data branch above: a TLS <= 1.2 server
+       * whose client False-Starts (app data piggybacked on CKE+CCS+Finished)
+       * parks the new session in this very SSL_read, and 'newSession' must
+       * reach JS before the handshake callback emits secureConnection. The
+       * client side parks its 'session' until secureConnect in JS. */
+      ssl_flush_pending_session(s);
+      ssl_flush_pending_keylog(s);
+      if (ssl_gone(s)) return NULL;
       ssl_trigger_handshake(s, 1);
       if (ssl_gone(s)) return NULL;
       loop_ssl_data->ssl_read_input = saved_input;
