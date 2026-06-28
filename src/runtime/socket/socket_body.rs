@@ -760,6 +760,38 @@ impl<const SSL: bool> NewSocket<SSL> {
         Ok(JSValue::UNDEFINED)
     }
 
+    /// `handle.resolveSession(sessionDataOrNull)` - resumes a server handshake
+    /// suspended on the external session-id lookup (node:tls server
+    /// `'resumeSession'`). The argument is the serialized `SSL_SESSION` the
+    /// external cache returned, or null/undefined for a miss. A no-op when the
+    /// socket already closed (the resolution outlived the connection).
+    #[bun_jsc::host_fn(method)]
+    pub fn resolve_session(
+        this: &Self,
+        global: &JSGlobalObject,
+        callframe: &CallFrame,
+    ) -> JsResult<JSValue> {
+        jsc::mark_binding!();
+        let args = callframe.arguments_old::<1>();
+        log!("resolveSession");
+        let socket = this.socket.get();
+        if socket.is_detached() {
+            return Ok(JSValue::UNDEFINED);
+        }
+        let data = if args.len >= 1 { args.ptr[0] } else { JSValue::UNDEFINED };
+        if data.is_undefined_or_null() {
+            socket.session_resolve(&[]);
+            return Ok(JSValue::UNDEFINED);
+        }
+        // `as_array_buffer` returns a borrowed view into the live JS buffer;
+        // `session_resolve` consumes it synchronously (d2i copies the bytes).
+        let Some(bytes) = data.as_array_buffer(global) else {
+            return Err(global.throw_invalid_argument_type("resolveSession", "session", "Buffer"));
+        };
+        socket.session_resolve(bytes.byte_slice());
+        Ok(JSValue::UNDEFINED)
+    }
+
     pub fn handle_error(&self, err_value: JSValue) {
         log!("handleError");
         let handlers = self.get_handlers();
@@ -1760,14 +1792,15 @@ impl<const SSL: bool> NewSocket<SSL> {
     }
 
     /// A new resumable TLS session arrived (the peer's NewSessionTicket was
-    /// processed during an earlier `SSL_read`). Hands the serialized session
-    /// to the JS `session` handler, mirroring Node's `onnewsession` callback.
+    /// processed during an earlier `SSL_read`, or a TLS <= 1.2 server minted
+    /// one). Hands the serialized session (and its `SSL_SESSION_get_id`) to
+    /// the JS `session` handler, mirroring Node's `onnewsession` callback.
     /// Dispatched from `ssl_flush_pending_session()` after the SSL stack has
     /// unwound, so the JS handler may safely destroy the socket.
     ///
     /// # Safety
     /// `this` points at a live `NewSocket`; JS-thread only.
-    pub unsafe fn on_session(this: *mut Self, session: &[u8]) -> JsResult<()> {
+    pub unsafe fn on_session(this: *mut Self, session: &[u8], id: &[u8]) -> JsResult<()> {
         jsc::mark_binding!();
         // SAFETY: per fn contract; shared reborrow only.
         let this: &Self = unsafe { &*this };
@@ -1790,21 +1823,21 @@ impl<const SSL: bool> NewSocket<SSL> {
         let scope = Handlers::enter_ref(handlers);
         let global = handlers.global_object;
         let this_value = this.get_this_value(&global);
-        let buffer = match JSValue::create_buffer_from_length(&global, session.len()) {
+        let buffer = match Self::create_buffer_copy(&global, session) {
             Ok(b) => b,
             Err(e) => {
                 this.exit_scope(scope, handlers);
                 return Err(e);
             }
         };
-        if let Some(ab) = buffer.as_array_buffer(&global) {
-            // SAFETY: `ab.ptr` points to a freshly-created `session.len()`-byte
-            // JS buffer kept alive on the stack; `session` is valid for its length.
-            unsafe {
-                core::ptr::copy_nonoverlapping(session.as_ptr(), ab.ptr, session.len());
+        let id_buffer = match Self::create_buffer_copy(&global, id) {
+            Ok(b) => b,
+            Err(e) => {
+                this.exit_scope(scope, handlers);
+                return Err(e);
             }
-        }
-        let result = match callback.call(&global, this_value, &[this_value, buffer]) {
+        };
+        let result = match callback.call(&global, this_value, &[this_value, buffer, id_buffer]) {
             Ok(v) => v,
             Err(err) => global.take_exception(err),
         };
@@ -1813,6 +1846,76 @@ impl<const SSL: bool> NewSocket<SSL> {
         }
         this.exit_scope(scope, handlers);
         Ok(())
+    }
+
+    /// A TLS <= 1.2 server handshake is suspended on the external session-id
+    /// lookup (node:tls server `'resumeSession'`). Hands the offered
+    /// `session_id` to the JS `resumeSession` handler; the handler must call
+    /// `handle.resolveSession(dataOrNull)` to complete the handshake. A
+    /// missing handler resolves immediately as a cache miss so the handshake
+    /// never stalls.
+    ///
+    /// # Safety
+    /// `this` points at a live `NewSocket`; JS-thread only.
+    pub unsafe fn on_resume_session(this: *mut Self, id: &[u8]) -> JsResult<()> {
+        jsc::mark_binding!();
+        // SAFETY: per fn contract; shared reborrow only.
+        let this: &Self = unsafe { &*this };
+        let socket = this.socket.get();
+        if socket.is_detached() {
+            return Ok(());
+        }
+        // Every early-return below must still complete the suspended
+        // handshake, or the connection hangs forever.
+        if this.handlers.get().is_none() {
+            socket.session_resolve(&[]);
+            return Ok(());
+        }
+        let handlers = this.get_handlers();
+        if handlers.vm.is_shutting_down() {
+            socket.session_resolve(&[]);
+            return Ok(());
+        }
+        let callback = handlers.on_resume_session;
+        if callback.is_empty() {
+            socket.session_resolve(&[]);
+            return Ok(());
+        }
+        let scope = Handlers::enter_ref(handlers);
+        let global = handlers.global_object;
+        let this_value = this.get_this_value(&global);
+        let id_buffer = match Self::create_buffer_copy(&global, id) {
+            Ok(b) => b,
+            Err(e) => {
+                this.socket.get().session_resolve(&[]);
+                this.exit_scope(scope, handlers);
+                return Err(e);
+            }
+        };
+        let result = match callback.call(&global, this_value, &[this_value, id_buffer]) {
+            Ok(v) => v,
+            Err(err) => global.take_exception(err),
+        };
+        if let Some(err_value) = result.to_error() {
+            // A throwing handler must not leave the handshake suspended.
+            this.socket.get().session_resolve(&[]);
+            let _ = handlers.call_error_handler(this_value, &[this_value, err_value]);
+        }
+        this.exit_scope(scope, handlers);
+        Ok(())
+    }
+
+    /// Allocate a JS `Buffer` and copy `bytes` into it.
+    fn create_buffer_copy(global: &JSGlobalObject, bytes: &[u8]) -> JsResult<JSValue> {
+        let buffer = JSValue::create_buffer_from_length(global, bytes.len())?;
+        if let Some(ab) = buffer.as_array_buffer(global) {
+            // SAFETY: `ab.ptr` points to a freshly-created `bytes.len()`-byte JS
+            // buffer kept alive on the stack; `bytes` is valid for its length.
+            unsafe {
+                core::ptr::copy_nonoverlapping(bytes.as_ptr(), ab.ptr, bytes.len());
+            }
+        }
+        Ok(buffer)
     }
 
     /// `*mut Self` for the same noalias-reentry reason as `on_session`.
@@ -1842,20 +1945,13 @@ impl<const SSL: bool> NewSocket<SSL> {
         let scope = Handlers::enter_ref(handlers);
         let global = handlers.global_object;
         let this_value = this.get_this_value(&global);
-        let buffer = match JSValue::create_buffer_from_length(&global, line.len()) {
+        let buffer = match Self::create_buffer_copy(&global, line) {
             Ok(b) => b,
             Err(e) => {
                 this.exit_scope(scope, handlers);
                 return Err(e);
             }
         };
-        if let Some(ab) = buffer.as_array_buffer(&global) {
-            // SAFETY: `ab.ptr` points to a freshly-created `line.len()`-byte
-            // JS buffer kept alive on the stack; `line` is valid for its length.
-            unsafe {
-                core::ptr::copy_nonoverlapping(line.as_ptr(), ab.ptr, line.len());
-            }
-        }
         let result = match callback.call(&global, this_value, &[this_value, buffer]) {
             Ok(v) => v,
             Err(err) => global.take_exception(err),
@@ -4144,12 +4240,12 @@ impl DuplexUpgradeContext {
         }
     }
 
-    fn on_session(&mut self, session: &[u8]) {
+    fn on_session(&mut self, session: &[u8], id: &[u8]) {
         if let Some(tls) = &mut self.tls {
             // SAFETY: intrusive refcount; single-threaded dispatch. `on_session`
             // takes `*mut Self` (noalias re-entrancy); JS errors land on the
             // socket's error handler inside.
-            let _ = unsafe { TLSSocket::on_session(tls.as_ptr(), session) };
+            let _ = unsafe { TLSSocket::on_session(tls.as_ptr(), session, id) };
         }
     }
 
@@ -4624,8 +4720,8 @@ pub fn js_upgrade_duplex_to_tls(
                     bun_ptr::callback_ctx::<DuplexUpgradeContext>(c.cast()).on_timeout()
                 },
                 // SAFETY: `c` is `ctx` below — the live `DuplexUpgradeContext` heap allocation.
-                on_session: |c: *mut (), s| {
-                    bun_ptr::callback_ctx::<DuplexUpgradeContext>(c.cast()).on_session(s)
+                on_session: |c: *mut (), s, id| {
+                    bun_ptr::callback_ctx::<DuplexUpgradeContext>(c.cast()).on_session(s, id)
                 },
                 // SAFETY: `c` is `ctx` below — the live `DuplexUpgradeContext` heap allocation.
                 on_keylog: |c: *mut (), l| {
