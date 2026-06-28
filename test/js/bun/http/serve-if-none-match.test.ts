@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { tempDirWithFiles } from "harness";
+import { join } from "node:path";
 
 describe("If-None-Match Support", () => {
   let server: Server;
@@ -263,6 +265,104 @@ describe("If-None-Match Support", () => {
       // PUT requests to static routes return the content normally (no If-None-Match applied)
       expect(res.status).toBe(200);
       expect(await res.text()).toBe(testContent);
+    });
+  });
+
+  // File-backed routes are served by FileRoute, a separate code path from the
+  // in-memory StaticRoute the blocks above exercise.
+  describe("File Routes", () => {
+    let fileServer: Server;
+    const fileContent = "file route body";
+
+    beforeAll(() => {
+      const dir = tempDirWithFiles("serve-file-if-none-match", {
+        "asset.txt": fileContent,
+      });
+      fileServer = Bun.serve({
+        port: 0,
+        routes: {
+          "/with-etag": new Response(Bun.file(join(dir, "asset.txt")), {
+            headers: {
+              "Content-Type": "text/plain",
+              "ETag": '"file-etag-v1"',
+            },
+          }),
+          "/no-etag": new Response(Bun.file(join(dir, "asset.txt"))),
+        },
+        fetch: () => new Response("Not Found", { status: 404 }),
+      });
+      fileServer.unref();
+    });
+
+    afterAll(() => {
+      fileServer.stop(true);
+    });
+
+    it("should return 304 when If-None-Match matches a file route's ETag", async () => {
+      const res = await fetch(`${fileServer.url}with-etag`, {
+        headers: {
+          "If-None-Match": '"file-etag-v1"',
+        },
+      });
+
+      expect(res.status).toBe(304);
+      expect(res.headers.get("ETag")).toBe('"file-etag-v1"');
+      expect(await res.text()).toBe("");
+    });
+
+    it("should support If-None-Match on file routes with HEAD requests", async () => {
+      const res = await fetch(`${fileServer.url}with-etag`, {
+        method: "HEAD",
+        headers: {
+          "If-None-Match": '"file-etag-v1"',
+        },
+      });
+
+      expect(res.status).toBe(304);
+      expect(await res.text()).toBe("");
+    });
+
+    it("should return 200 when If-None-Match does not match a file route's ETag", async () => {
+      const res = await fetch(`${fileServer.url}with-etag`, {
+        headers: {
+          "If-None-Match": '"stale-etag"',
+        },
+      });
+
+      expect(await res.text()).toBe(fileContent);
+      expect(res.status).toBe(200);
+    });
+
+    it("should ignore If-Modified-Since when If-None-Match is present", async () => {
+      // RFC 9110 section 13.1.3: a non-matching If-None-Match yields 200 even
+      // when If-Modified-Since alone would have yielded 304.
+      const futureDate = new Date(Date.now() + 60_000).toUTCString();
+      const unconditional = await fetch(`${fileServer.url}with-etag`, {
+        headers: { "If-Modified-Since": futureDate },
+      });
+      expect(unconditional.status).toBe(304);
+
+      const res = await fetch(`${fileServer.url}with-etag`, {
+        headers: {
+          "If-None-Match": '"stale-etag"',
+          "If-Modified-Since": futureDate,
+        },
+      });
+
+      expect(await res.text()).toBe(fileContent);
+      expect(res.status).toBe(200);
+    });
+
+    it("should serve file routes without an ETag normally", async () => {
+      const res = await fetch(`${fileServer.url}no-etag`, {
+        headers: {
+          "If-None-Match": '"anything"',
+        },
+      });
+
+      expect(res.headers.get("ETag")).toBeNull();
+      expect(await res.text()).toBe(fileContent);
+      expect(res.status).toBe(200);
     });
   });
 });

@@ -450,12 +450,22 @@ impl FileRoute {
 
         let status_code: u16 = 'brk: {
             // RFC 9110 §13.2.2: conditional preconditions are evaluated before
-            // Range. If-Modified-Since on an unmodified resource yields 304 even
-            // when a Range header is present (without If-Range).
-            // Unlike If-Unmodified-Since, If-Modified-Since can only be used with a
-            // GET or HEAD. When used in combination with If-None-Match, it is
-            // ignored, unless the server doesn't support If-None-Match.
-            if let Some(requested_if_modified_since) = input_if_modified_since_date {
+            // Range. If-None-Match comes first; §13.1.3 requires If-Modified-Since
+            // to be ignored whenever the request carries an If-None-Match field.
+            if let Some(if_none_match) = req.header(b"if-none-match") {
+                if !if_none_match.is_empty()
+                    && (method == Method::HEAD || method == Method::GET)
+                    && this.status_code == 200
+                {
+                    if let Some(etag) = this.headers.get(b"etag") {
+                        if !etag.is_empty()
+                            && bun_http_types::ETag::if_none_match(etag, if_none_match)
+                        {
+                            break 'brk 304;
+                        }
+                    }
+                }
+            } else if let Some(requested_if_modified_since) = input_if_modified_since_date {
                 if method == Method::HEAD || method == Method::GET {
                     let Ok(lmd) = this.last_modified_date() else {
                         return;
