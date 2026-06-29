@@ -518,8 +518,8 @@ fn fetch_impl<const ALLOW_GET_BODY: bool>(
             break 'brk Some(options);
         }
         // `fetch()` returns a Promise, so argument-conversion failures reject
-        // rather than throw synchronously (WebIDL §3.7.10) — matches every
-        // other validation error in this function and the `.zig` reference.
+        // rather than throw synchronously (WebIDL §3.7.10), matching every
+        // other validation error in this function.
         // `bun_core::String` is `Copy` with NO `Drop`, so the +1 WTFStringImpl
         // ref from `StringOrURL::from_js` must be released explicitly here; the
         // `OwnedString` wrap that normally does this is past the early return.
