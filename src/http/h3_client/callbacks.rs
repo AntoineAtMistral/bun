@@ -229,7 +229,7 @@ extern "C" fn on_stream_headers(s: *mut quic::Stream) {
         if stream.status_code == 0
             && (is_malformed_response_field(name) || is_malformed_response_value(value))
         {
-            session.fail(stream, err!(HTTP3ProtocolError));
+            session.fail_malformed(stream);
             return;
         }
         stream
@@ -244,7 +244,7 @@ extern "C" fn on_stream_headers(s: *mut quic::Stream) {
         if stream.status_code != 0 {
             return;
         }
-        session.fail(stream, err!(HTTP3ProtocolError));
+        session.fail_malformed(stream);
         return;
     }
     if status >= 100 && status < 200 {
@@ -261,7 +261,7 @@ extern "C" fn on_stream_data(s: *mut quic::Stream, data: *const u8, len: c_uint,
     // (a 1xx alone leaves status_code 0); lsquic only checks that *some*
     // HEADERS preceded DATA, so a 1xx + DATA flood would grow unbounded.
     if len > 0 && stream.status_code == 0 {
-        stream.session_mut().fail(stream, err!(HTTP3ProtocolError));
+        stream.session_mut().fail_malformed(stream);
         return;
     }
     // SAFETY: lsquic guarantees `data` points to `len` valid bytes (or `(null,0)`).
