@@ -386,4 +386,45 @@ describe("system-wide bunfig.toml", () => {
     expect(stdout.trim().length).toBeGreaterThan(0);
     expect(exitCode).toBe(0);
   });
+
+  // A compiled standalone binary runs through `boot_standalone`, a different
+  // code path than the normal CLI dispatch the other tests exercise. It must
+  // still honor an explicit BUN_SYSTEM_CONFIG (docs promise system config is
+  // applied "on every command path, including compiled standalone binaries").
+  // The binary is built without a preload; the system config's preload runs
+  // only because boot_standalone loaded it at runtime.
+  test("compiled standalone binary honors BUN_SYSTEM_CONFIG", async () => {
+    using dir = tempDir("system-bunfig-standalone", {
+      "system-bunfig.toml": `preload = ["./sys-preload.ts"]`,
+      "sys-preload.ts": `console.log("SYSTEM_PRELOAD_RAN");`,
+      "app.ts": `console.log("app ran");`,
+    });
+    const out = join(String(dir), "app" + (isWindows ? ".exe" : ""));
+
+    await using build = Bun.spawn({
+      cmd: [bunExe(), "build", "--compile", "app.ts", "--outfile", out],
+      cwd: String(dir),
+      env: bunEnv,
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    const [buildStderr, buildExit] = await Promise.all([build.stderr.text(), build.exited]);
+    expect(buildStderr).not.toContain("error:");
+    expect(buildExit).toBe(0);
+
+    await using proc = Bun.spawn({
+      cmd: [out],
+      env: { ...bunEnv, BUN_SYSTEM_CONFIG: join(String(dir), "system-bunfig.toml") },
+      cwd: String(dir),
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    const [stdout, _stderr, exitCode] = await Promise.all([proc.stdout.text(), proc.stderr.text(), proc.exited]);
+
+    // Preload from the system config ran before the app, proving boot_standalone
+    // loaded and applied BUN_SYSTEM_CONFIG for the standalone binary.
+    expect(stdout).toContain("SYSTEM_PRELOAD_RAN");
+    expect(stdout).toContain("app ran");
+    expect(exitCode).toBe(0);
+  });
 });
