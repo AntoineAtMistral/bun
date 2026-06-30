@@ -943,10 +943,35 @@ for (const { body: bodyType, fn } of bodyTypes) {
     });
 
     test("clone() after accessing .body keeps the type", async () => {
-      const original = fn(new Blob(["x"], { type: "a/a" }));
-      original.body;
-      const clone = original.clone();
-      expect([(await original.blob()).type, (await clone.blob()).type]).toEqual(["a/a", "a/a"]);
+      const blobBody = fn(new Blob(["x"], { type: "a/a" }));
+      blobBody.body;
+      const blobClone = blobBody.clone();
+      const stringBody = fn("hello");
+      stringBody.body;
+      const stringClone = stringBody.clone();
+      expect({
+        blob: [(await blobBody.blob()).type, (await blobClone.blob()).type],
+        string: [(await stringBody.blob()).type, (await stringClone.blob()).type],
+      }).toEqual({
+        blob: ["a/a", "a/a"],
+        string: ["text/plain;charset=utf-8", "text/plain;charset=utf-8"],
+      });
+    });
+
+    // A non-ASCII string body materializes as internal bytes before cloning;
+    // both sides must still report the string default.
+    test("clone() of a string body keeps its implied type", async () => {
+      const ascii = fn("hello");
+      const asciiClone = ascii.clone();
+      const nonAscii = fn("héllo");
+      const nonAsciiClone = nonAscii.clone();
+      expect({
+        ascii: [(await ascii.blob()).type, (await asciiClone.blob()).type],
+        nonAscii: [(await nonAscii.blob()).type, (await nonAsciiClone.blob()).type],
+      }).toEqual({
+        ascii: ["text/plain;charset=utf-8", "text/plain;charset=utf-8"],
+        nonAscii: ["text/plain;charset=utf-8", "text/plain;charset=utf-8"],
+      });
     });
 
     test("a body built from another body's stream", async () => {

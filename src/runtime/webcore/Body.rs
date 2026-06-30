@@ -56,13 +56,21 @@ fn into_consumed_blob(blob: Blob, content_type: Option<Box<[u8]>>) -> Blob {
     blob.free_content_type();
     blob.content_type
         .set(std::ptr::from_ref::<[u8]>(b"" as &'static [u8]));
-    blob.content_type_was_set.set(content_type.is_some());
+    blob.content_type_was_set.set(false);
     if let Some(content_type) = content_type {
-        blob.content_type
-            .set(bun_core::heap::into_raw(content_type));
-        blob.content_type_allocated.set(true);
+        set_owned_content_type(&blob, content_type);
     }
     blob
+}
+
+/// Hand `blob` ownership of `content_type` (freed by the blob's `deinit`),
+/// replacing whatever it held.
+fn set_owned_content_type(blob: &Blob, content_type: Box<[u8]>) {
+    blob.free_content_type();
+    blob.content_type
+        .set(bun_core::heap::into_raw(content_type));
+    blob.content_type_allocated.set(true);
+    blob.content_type_was_set.set(true);
 }
 
 /// Fetch's "extract a MIME type" + mimesniff's "serialize a MIME type" over a
@@ -777,12 +785,20 @@ impl Value {
         };
 
         if let Some(blob) = locked.to_any_blob() {
+            let source_content_type = locked.source_content_type.take();
             *self = match blob {
                 AnyBlob::Blob(b) => Value::Blob(b),
                 AnyBlob::InternalBlob(b) => Value::InternalBlob(b),
                 AnyBlob::WTFStringImpl(s) => Value::WTFStringImpl(s),
                 // AnyBlob::InlineBlob(b) => Value::InlineBlob(b),
             };
+            // Only a string body captures a type and recovers as plain bytes
+            // (`was_string` did not survive the stream round trip); restore it.
+            if source_content_type.is_some() {
+                if let Value::InternalBlob(internal_blob) = self {
+                    internal_blob.was_string = true;
+                }
+            }
         }
     }
 
@@ -1622,8 +1638,15 @@ impl Value {
         }
 
         if let Value::InternalBlob(internal_blob) = self {
+            let was_string = internal_blob.was_string;
             let owned = internal_blob.to_owned_slice();
-            *self = Value::Blob(Blob::init(owned, global_this));
+            let blob = Blob::init(owned, global_this);
+            // `was_string` has no home on the shared-store `Blob` both bodies
+            // get below; keep the type it implies (MimeType::TEXT).
+            if was_string {
+                set_owned_content_type(&blob, Box::from(&b"text/plain;charset=utf-8"[..]));
+            }
+            *self = Value::Blob(blob);
         }
 
         if let Value::Blob(b) = self {
