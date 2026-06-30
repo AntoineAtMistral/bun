@@ -101,15 +101,20 @@ pub fn set_blob_type(global_this: &JSGlobalObject, callframe: &CallFrame) -> JsR
     if content_type.is_string() {
         let content_type_str = content_type.to_slice(global_this)?;
         let slice = content_type_str.slice();
+        blob.free_content_type();
         if is_valid_blob_type(slice) {
             let mut buf = vec![0u8; slice.len()];
             strings::copy_lowercase(slice, &mut buf);
-            blob.free_content_type();
             blob.content_type
                 .set(bun_core::heap::into_raw(buf.into_boxed_slice()));
             blob.content_type_allocated.set(true);
-            blob.content_type_was_set.set(true);
+        } else {
+            // An invalid `type` becomes "", never the stream source's type
+            // (the buffered fast path hands back an already-typed blob).
+            blob.content_type
+                .set(std::ptr::from_ref::<[u8]>(b"" as &'static [u8]));
         }
+        blob.content_type_was_set.set(true);
     }
     Ok(blob_value)
 }

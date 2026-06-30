@@ -969,6 +969,14 @@ describe("Bun.readableStreamToBlob", () => {
     // constructor; it must never reach an outgoing Content-Type header.
     expect((await Bun.readableStreamToBlob(stream(), "a/b\rx: y")).type).toBe("");
   });
+  test("a blob-backed stream's own type never shadows the contentType", async () => {
+    // The buffered fast path resolves with a blob that already carries the
+    // source Blob's type; the contentType argument still decides the result.
+    const typed = () => new Blob(["hi"], { type: "a/a" }).stream();
+    expect((await Bun.readableStreamToBlob(typed())).type).toBe("a/a");
+    expect((await Bun.readableStreamToBlob(typed(), "B/B")).type).toBe("b/b");
+    expect((await Bun.readableStreamToBlob(typed(), "a/b\rx: y")).type).toBe("");
+  });
   test("a non-string contentType throws before the stream is touched", () => {
     const untouched = stream();
     // @ts-expect-error intentionally the wrong type
