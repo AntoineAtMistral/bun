@@ -877,6 +877,10 @@ for (const { body: bodyType, fn } of bodyTypes) {
         type: "text/plain;charset=utf-8",
         text: "hi",
       });
+      // A bare well-known essence must come through exactly as in the header:
+      // the Blob constructor's interned MIME table would canonicalize
+      // "application/json" to "application/json;charset=utf-8".
+      expect((await fn(stream(), { "content-type": "application/json" }).blob()).type).toBe("application/json");
       const withoutHeader = await fn(stream()).blob();
       expect({ type: withoutHeader.type, text: await withoutHeader.text() }).toEqual({ type: "", text: "hi" });
     });
@@ -941,5 +945,9 @@ describe("Bun.readableStreamToBlob", () => {
   test("with a contentType", async () => {
     const blob = await Bun.readableStreamToBlob(stream(), "x/y");
     expect({ type: blob.type, text: await blob.text() }).toEqual({ type: "x/y", text: "hi" });
+  });
+  test("a contentType the Blob constructor would canonicalize is stored verbatim", async () => {
+    const blob = await Bun.readableStreamToBlob(stream(), "application/json");
+    expect({ type: blob.type, text: await blob.text() }).toEqual({ type: "application/json", text: "hi" });
   });
 });

@@ -337,12 +337,17 @@ export function readableStreamToBlob(stream: ReadableStream, contentType?: strin
   if (!$isReadableStream(stream)) throw $ERR_INVALID_ARG_TYPE("stream", "ReadableStream", typeof stream);
   if ($isReadableStreamLocked(stream)) return Promise.$reject($ERR_INVALID_STATE_TypeError("ReadableStream is locked"));
 
-  const options = contentType === undefined ? undefined : { type: contentType };
-  const fastPath = $tryUseReadableStreamBufferedFastPath(stream, "blob");
-  if (fastPath) {
-    return options === undefined ? fastPath : fastPath.then(blob => new Blob([blob], options));
+  const promise =
+    $tryUseReadableStreamBufferedFastPath(stream, "blob") ||
+    Promise.$resolve(Bun.readableStreamToArray(stream)).then(array => new Blob(array));
+  if (contentType === undefined) {
+    return promise;
   }
-  return Promise.$resolve(Bun.readableStreamToArray(stream)).then(array => new Blob(array, options));
+  // The Blob constructor's `type` option canonicalizes well-known MIME types
+  // through the interned table; `contentType` is already normalized and must
+  // be stored exactly as given.
+  const setBlobTypeVerbatim = $newRustFunction("Blob.rs", "setBlobTypeVerbatim", 2);
+  return promise.then(blob => setBlobTypeVerbatim(blob, contentType));
 }
 
 $linkTimeConstant;

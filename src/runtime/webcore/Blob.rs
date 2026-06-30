@@ -86,6 +86,35 @@ pub(crate) fn is_valid_blob_type(slice: &[u8]) -> bool {
     slice.iter().all(|&c| matches!(c, 0x20..=0x7E))
 }
 
+/// `$newRustFunction("Blob.rs", "setBlobTypeVerbatim", 2)`, used only by the
+/// `readableStreamToBlob` builtin: store an already-normalized `type` exactly
+/// as given and return the blob. The `Blob` constructor's `type` option would
+/// canonicalize well-known essences through the interned MIME table
+/// ("application/json" becomes "application/json;charset=utf-8"), which must
+/// not apply to the type `blob()` extracts from the `Content-Type` header.
+pub fn set_blob_type_verbatim(
+    global_this: &JSGlobalObject,
+    callframe: &CallFrame,
+) -> JsResult<JSValue> {
+    let arguments = callframe.arguments_old::<2>();
+    let args = arguments.slice();
+    let blob_value = args.first().copied().unwrap_or(JSValue::UNDEFINED);
+    let Some(blob) = blob_value.as_class_ref::<Blob>() else {
+        return Ok(blob_value);
+    };
+    let content_type = args.get(1).copied().unwrap_or(JSValue::UNDEFINED);
+    if content_type.is_string() {
+        let content_type_str = content_type.to_slice(global_this)?;
+        blob.free_content_type();
+        blob.content_type.set(bun_core::heap::into_raw(
+            content_type_str.slice().to_vec().into_boxed_slice(),
+        ));
+        blob.content_type_allocated.set(true);
+        blob.content_type_was_set.set(true);
+    }
+    Ok(blob_value)
+}
+
 /// Result delivered to `ReadBytesHandler::on_read_bytes`.
 pub enum ReadBytesResult {
     /// global-allocator-owned by the callback.
