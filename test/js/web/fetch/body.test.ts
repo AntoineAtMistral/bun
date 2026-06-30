@@ -738,19 +738,12 @@ describe.concurrent("string body consumption does not leak", () => {
   }
 });
 
-// Per https://fetch.spec.whatwg.org/#dom-body-blob, `blob()` resolves to a
-// plain `Blob` (never a `File`) whose `type` is the result of "extract a MIME
-// type" from the header list, serialized per
-// https://mimesniff.spec.whatwg.org/#serialize-a-mime-type and then run
-// through the Blob constructor's `type` normalization (ASCII-lowercased; ""
-// if any character is outside U+0020-U+007E). Bun used to return the body's
-// own Blob verbatim (File identity, name and raw `type` included) and only
-// consult the Content-Type header through a lookup table, never a MIME parse.
+// https://fetch.spec.whatwg.org/#dom-body-blob: `blob()` resolves to a plain
+// `Blob` (never a `File`) whose `type` is "extract a MIME type" of the header
+// list, serialized per mimesniff and normalized like any Blob `type`.
 for (const { body: bodyType, fn } of bodyTypes) {
   describe(`${bodyType.name}.prototype.blob()`, () => {
-    // Every pair below was produced by running the same header through
-    // `new Response(new Uint8Array([0x78]), { headers }).blob()` and its
-    // Request twin in Node.js v26, which implements the spec literally.
+    // Every (header, type) pair below was verified against Node.js v26.
     const headerToBlobType: [header: string, type: string][] = [
       ["text/plain", "text/plain"],
       ["TEXT/PLAIN", "text/plain"],
@@ -848,6 +841,10 @@ for (const { body: bodyType, fn } of bodyTypes) {
     test("an explicit Content-Type header wins over the body Blob's type", async () => {
       const blob = await fn(new Blob(["x"], { type: "a/a" }), { "content-type": "b/b" }).blob();
       expect(blob.type).toBe("b/b");
+      // It wins even when it extracts to nothing: the body Blob's type must
+      // not leak through, whether Bun stores it interned (text/plain) or not.
+      expect((await fn(new Blob(["x"], { type: "text/plain" }), { "content-type": "*/*" }).blob()).type).toBe("");
+      expect((await fn(new Blob(["x"], { type: "a/a" }), { "content-type": "*/*" }).blob()).type).toBe("");
     });
 
     test("does not mutate the body source Blob's type", async () => {

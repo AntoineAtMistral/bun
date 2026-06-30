@@ -50,9 +50,12 @@ fn into_consumed_blob(blob: Blob, content_type: Option<Box<[u8]>>) -> Blob {
     // `stored_name`; an explicitly empty per-blob `name` suppresses that
     // fallback (see `Blob::get_name_string`).
     blob.name.set(BunString::empty());
-    // The body may have deep-copied an allocated content type into this blob;
-    // release it before overwriting.
+    // `free_content_type` only releases an *owned* allocation; a static
+    // interned pointer inherited from the source blob survives it, so reset
+    // unconditionally: the result's type is exactly the computed one, or "".
     blob.free_content_type();
+    blob.content_type
+        .set(std::ptr::from_ref::<[u8]>(b"" as &'static [u8]));
     blob.content_type_was_set.set(content_type.is_some());
     if let Some(content_type) = content_type {
         blob.content_type

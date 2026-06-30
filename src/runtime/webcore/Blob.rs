@@ -2161,10 +2161,13 @@ impl BlobExt for Blob {
     fn get_name_string(&self) -> Option<BunString> {
         let name = self.name.get();
         if name.tag() != bun_core::Tag::Dead {
-            // An explicitly empty `name` means "no name" and suppresses the
-            // store-derived fallback: `blob()` returns a plain Blob whose
-            // (still shared) store may carry a source `File`'s `stored_name`.
-            return if name.is_empty() { None } else { Some(name) };
+            // A plain Blob with an explicitly empty `name` has none: `blob()`
+            // sets it to suppress the shared store's `stored_name`. A `File`'s
+            // empty `name` is a real (empty) filename and must stay visible.
+            if name.is_empty() && !self.is_jsdom_file.get() {
+                return None;
+            }
+            return Some(name);
         }
         if let Some(path) = self.get_file_name() {
             self.name.set(BunString::clone_utf8(path));
