@@ -799,6 +799,9 @@ for (const { body: bodyType, fn } of bodyTypes) {
       ["text/html;charset=x, text/html;a=b", "text/html;a=b;charset=x"],
       ["text/html;charset=x, text/plain", "text/plain"],
       ["text/html;charset=x, text/html;charset=y", "text/html;charset=y"],
+      // The carried charset is only updated when the essence changes (fetch
+      // "extract a MIME type" step 6.4.2), so the last value inherits x, not y.
+      ["text/html;charset=x, text/html;charset=y, text/html", "text/html;charset=x"],
       ['text/a;x="y,z", text/b', "text/b"],
       ['text/a;x="y,z', 'text/a;x="y,z"'],
       ["text/a;x=y,z/w", "z/w"],
@@ -949,5 +952,17 @@ describe("Bun.readableStreamToBlob", () => {
   test("a contentType the Blob constructor would canonicalize is stored verbatim", async () => {
     const blob = await Bun.readableStreamToBlob(stream(), "application/json");
     expect({ type: blob.type, text: await blob.text() }).toEqual({ type: "application/json", text: "hi" });
+  });
+  test("the contentType is validated and lowercased like a Blob type", async () => {
+    expect((await Bun.readableStreamToBlob(stream(), "TEXT/Plain")).type).toBe("text/plain");
+    // Characters outside U+0020-U+007E drop the type, as in the Blob
+    // constructor; it must never reach an outgoing Content-Type header.
+    expect((await Bun.readableStreamToBlob(stream(), "a/b\rx: y")).type).toBe("");
+  });
+  test("a non-string contentType throws before the stream is touched", () => {
+    const untouched = stream();
+    // @ts-expect-error intentionally the wrong type
+    expect(() => Bun.readableStreamToBlob(untouched, 123)).toThrowWithCode(TypeError, "ERR_INVALID_ARG_TYPE");
+    expect(untouched.locked).toBe(false);
   });
 });

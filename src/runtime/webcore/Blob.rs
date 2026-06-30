@@ -86,13 +86,11 @@ pub(crate) fn is_valid_blob_type(slice: &[u8]) -> bool {
     slice.iter().all(|&c| matches!(c, 0x20..=0x7E))
 }
 
-/// `$newRustFunction("Blob.rs", "setBlobTypeVerbatim", 2)`, only for the
-/// `readableStreamToBlob` builtin: store an already-normalized `type` exactly
-/// as given, unlike the constructor's interned-MIME-table canonicalization.
-pub fn set_blob_type_verbatim(
-    global_this: &JSGlobalObject,
-    callframe: &CallFrame,
-) -> JsResult<JSValue> {
+/// `$newRustFunction("Blob.rs", "setBlobType", 2)`, only for the
+/// `readableStreamToBlob` builtin: validate and ASCII-lowercase a `type` like
+/// the `Blob` constructor, but never canonicalize it through the interned MIME
+/// table ("application/json" must not become "application/json;charset=utf-8").
+pub fn set_blob_type(global_this: &JSGlobalObject, callframe: &CallFrame) -> JsResult<JSValue> {
     let arguments = callframe.arguments_old::<2>();
     let args = arguments.slice();
     let blob_value = args.first().copied().unwrap_or(JSValue::UNDEFINED);
@@ -102,12 +100,16 @@ pub fn set_blob_type_verbatim(
     let content_type = args.get(1).copied().unwrap_or(JSValue::UNDEFINED);
     if content_type.is_string() {
         let content_type_str = content_type.to_slice(global_this)?;
-        blob.free_content_type();
-        blob.content_type.set(bun_core::heap::into_raw(
-            content_type_str.slice().to_vec().into_boxed_slice(),
-        ));
-        blob.content_type_allocated.set(true);
-        blob.content_type_was_set.set(true);
+        let slice = content_type_str.slice();
+        if is_valid_blob_type(slice) {
+            let mut buf = vec![0u8; slice.len()];
+            strings::copy_lowercase(slice, &mut buf);
+            blob.free_content_type();
+            blob.content_type
+                .set(bun_core::heap::into_raw(buf.into_boxed_slice()));
+            blob.content_type_allocated.set(true);
+            blob.content_type_was_set.set(true);
+        }
     }
     Ok(blob_value)
 }

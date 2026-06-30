@@ -335,6 +335,8 @@ export function readableStreamToJSON(stream: ReadableStream): unknown {
 $linkTimeConstant;
 export function readableStreamToBlob(stream: ReadableStream, contentType?: string): Promise<Blob> {
   if (!$isReadableStream(stream)) throw $ERR_INVALID_ARG_TYPE("stream", "ReadableStream", typeof stream);
+  if (contentType !== undefined && typeof contentType !== "string")
+    throw $ERR_INVALID_ARG_TYPE("contentType", "string", typeof contentType);
   if ($isReadableStreamLocked(stream)) return Promise.$reject($ERR_INVALID_STATE_TypeError("ReadableStream is locked"));
 
   const promise =
@@ -343,11 +345,11 @@ export function readableStreamToBlob(stream: ReadableStream, contentType?: strin
   if (contentType === undefined) {
     return promise;
   }
-  // The Blob constructor's `type` option canonicalizes well-known MIME types
-  // through the interned table; `contentType` is already normalized and must
-  // be stored exactly as given.
-  const setBlobTypeVerbatim = $newRustFunction("Blob.rs", "setBlobTypeVerbatim", 2);
-  return promise.then(blob => setBlobTypeVerbatim(blob, contentType));
+  // `setBlobType` validates and lowercases like the Blob constructor's `type`
+  // option, but never canonicalizes it through the interned MIME table, which
+  // would rewrite e.g. "application/json" to "application/json;charset=utf-8".
+  const setBlobType = $newRustFunction("Blob.rs", "setBlobType", 2);
+  return promise.then(blob => setBlobType(blob, contentType));
 }
 
 $linkTimeConstant;
