@@ -356,11 +356,8 @@ pub fn js_function_color(global: &JSGlobalObject, frame: &CallFrame) -> JsResult
 
         input = args[0].to_slice(global)?;
 
-        // Reuse a per-thread warm heap instead of `Arena::new()` per call (see
-        // `with_color_arena`): the common color literal allocates nothing here,
-        // so this avoids a `mi_heap_new`/`mi_heap_destroy` round-trip on the hot
-        // path while still bulk-freeing any copy-on-write token buffers. The
-        // parsed `CssColor` is fully owned, so it outlives the arena borrow.
+        // Borrow the per-thread scratch arena (see `with_color_arena`); the
+        // parsed `CssColor` is fully owned, so it outlives the borrow.
         break 'brk with_color_arena(|arena| {
             let mut parser_input = css::ParserInput::new(input.slice(), arena);
             let mut parser = css::Parser::new(
@@ -628,14 +625,9 @@ pub fn js_function_color(global: &JSGlobalObject, frame: &CallFrame) -> JsResult
                 return str.transfer_to_js(global);
             }
 
-            // Fallback to CSS string output. Reuse the same per-thread warm heap
-            // as the parser (see `with_color_arena`) instead of `Arena::new()`
-            // per call: serializing a single `CssColor` writes into the
-            // global-heap `dest` vec and leaves the printer's
-            // `scratchbuf`/`indentation_buf` empty, so the arena backs no
-            // allocations on the common path — but routing through it (rather
-            // than `borrowing_default()`) means any stray printer allocation is
-            // reclaimed by the next reset instead of leaking into the main heap.
+            // Fallback to CSS string output. Borrow the per-thread scratch arena
+            // (see `with_color_arena`) rather than `borrowing_default()` so any
+            // stray printer allocation is reclaimed instead of leaking.
             return with_color_arena(|arena| {
                 let mut dest: Vec<u8> = Vec::new();
 
