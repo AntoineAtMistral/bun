@@ -893,6 +893,76 @@ for (const { body: bodyType, fn } of bodyTypes) {
       const source = file(join(String(dir), "a.json"));
       expect((await fn(source).blob()).type).toBe(source.type);
     });
+
+    // Reading `.body` materializes the body as a ReadableStream, but the type
+    // comes from the header list, which is fixed at construction.
+    test("accessing .body first does not change the type", async () => {
+      const typed = fn(new Blob(["x"], { type: "a/a" }));
+      typed.body;
+      const emptyTyped = fn(new Blob([], { type: "a/a" }));
+      emptyTyped.body;
+      const untyped = fn(new Blob(["x"]));
+      untyped.body;
+      const string = fn("hello");
+      string.body;
+      string.body;
+      const header = fn(new Blob(["x"], { type: "a/a" }), { "content-type": "B/B ; c=d" });
+      header.body;
+      const params = fn(new URLSearchParams("a=b"));
+      params.body;
+      const headersThenBody = fn(new Blob(["x"], { type: "a/a" }));
+      headersThenBody.headers;
+      headersThenBody.body;
+      expect({
+        typed: (await typed.blob()).type,
+        emptyTyped: (await emptyTyped.blob()).type,
+        untyped: (await untyped.blob()).type,
+        string: (await string.blob()).type,
+        header: (await header.blob()).type,
+        params: (await params.blob()).type,
+        headersThenBody: (await headersThenBody.blob()).type,
+      }).toEqual({
+        typed: "a/a",
+        emptyTyped: "a/a",
+        untyped: "",
+        string: "text/plain;charset=utf-8",
+        header: "b/b;c=d",
+        params: "application/x-www-form-urlencoded;charset=utf-8",
+        headersThenBody: "a/a",
+      });
+    });
+
+    test("accessing .body first keeps a FormData body's multipart type", async () => {
+      const form = new FormData();
+      form.set("a", "b");
+      const request = fn(form);
+      request.body;
+      const { type } = await request.blob();
+      expect(type).toStartWith("multipart/form-data;boundary=");
+      expect(type).not.toInclude(" ");
+    });
+
+    test("clone() after accessing .body keeps the type", async () => {
+      const original = fn(new Blob(["x"], { type: "a/a" }));
+      original.body;
+      const clone = original.clone();
+      expect([(await original.blob()).type, (await clone.blob()).type]).toEqual(["a/a", "a/a"]);
+    });
+
+    test("a body built from another body's stream", async () => {
+      const typedStream = () => fn(new Blob(["x"], { type: "a/a" })).body!;
+      expect({
+        // Bun adopts an undisturbed blob-backed stream as the blob itself,
+        // type included; per "extract a body" a stream has none (Node: "").
+        adopted: (await fn(typedStream()).blob()).type,
+        withHeader: (await fn(typedStream(), { "content-type": "x/y" }).blob()).type,
+        fromString: (await fn(fn("hello").body!).blob()).type,
+      }).toEqual({
+        adopted: "a/a",
+        withHeader: "x/y",
+        fromString: "",
+      });
+    });
   });
 }
 

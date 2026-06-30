@@ -274,6 +274,11 @@ pub struct PendingValue {
     pub on_stream_drained: Option<fn(ctx: Option<*mut c_void>)>,
     pub size_hint: blob::SizeType,
 
+    /// [`Value::source_content_type`] of the body this stream was created
+    /// from, captured in `to_readable_stream`. `None` for streams that did
+    /// not originate from a local body (user streams, network bodies).
+    pub source_content_type: Option<Box<[u8]>>,
+
     pub deinit: bool,
     pub action: Action,
 }
@@ -303,6 +308,7 @@ impl Default for PendingValue {
             on_stream_cancelled: None,
             on_stream_drained: None,
             size_hint: 0,
+            source_content_type: None,
             deinit: false,
             action: Action::None,
         }
@@ -720,6 +726,22 @@ impl Value {
             _ => false,
         }
     }
+
+    /// The `Content-Type` that Fetch's "extract a body" derives from a local
+    /// body: the string default for string bodies, else the blob's own type.
+    /// `None` for streams, network bodies, and untyped blobs.
+    pub fn source_content_type(&self) -> Option<&[u8]> {
+        if self.was_string() {
+            return Some(b"text/plain;charset=UTF-8");
+        }
+        if let Value::Blob(blob) = self {
+            let content_type = blob.content_type_slice();
+            if !content_type.is_empty() {
+                return Some(content_type);
+            }
+        }
+        None
+    }
 }
 
 impl Value {
@@ -839,6 +861,8 @@ impl Value {
             Value::Empty => ReadableStream::empty(global_this),
             Value::Null => Ok(JSValue::NULL),
             Value::InternalBlob(_) | Value::Blob(_) | Value::WTFStringImpl(_) => {
+                // `use_()` below erases what the body was; keep the derived type.
+                let source_content_type = self.source_content_type().map(Box::from);
                 // `deinit` must run on every exit incl. `?` paths.
                 let blob = scopeguard::guard(self.use_(), |mut b| b.deinit());
                 blob.resolve_size();
@@ -848,6 +872,7 @@ impl Value {
                 let stream = ReadableStream::from_js(value, global_this)?.unwrap();
                 *self = Value::Locked(PendingValue {
                     readable: webcore::readable_stream::Strong::init(stream, global_this),
+                    source_content_type,
                     ..PendingValue::new(global_this)
                 });
                 Ok(value)
@@ -2083,21 +2108,18 @@ pub(crate) trait BodyMixin: BodyOwnerJs + Sized {
         self.get_blob_with_this_value(global_object, callframe.this())
     }
 
-    /// Fetch's "get the MIME type" for `blob()`: extract a MIME type from the
-    /// header list and serialize it; `None` surfaces as an empty `type`.
-    ///
-    /// Bun materializes the body-derived `Content-Type` header lazily, so the
-    /// spec's "header list" here is the explicit `Content-Type` header, else
-    /// the body blob's own `type`, else `text/plain;charset=UTF-8` for a
-    /// string body (what "extract a body" would have appended).
+    /// Fetch's "get the MIME type" for `blob()`: the explicit `Content-Type`
+    /// header, else what "extract a body" derived from the original body
+    /// ([`Value::source_content_type`], kept across a `.body` stream access).
     fn get_blob_content_type(&self) -> JsResult<Option<Box<[u8]>>> {
-        let content_type = self.get_content_type()?;
-        let header: &[u8] = match &content_type {
-            Some(slice) => slice.slice(),
-            None if self.get_body_value().was_string() => b"text/plain;charset=UTF-8",
-            None => return Ok(None),
-        };
-        Ok(normalize_blob_type(header))
+        if let Some(content_type) = self.get_content_type()? {
+            return Ok(normalize_blob_type(content_type.slice()));
+        }
+        Ok(match self.get_body_value() {
+            Value::Locked(locked) => locked.source_content_type.as_deref(),
+            value => value.source_content_type(),
+        }
+        .and_then(normalize_blob_type))
     }
 
     fn get_blob_with_this_value(
