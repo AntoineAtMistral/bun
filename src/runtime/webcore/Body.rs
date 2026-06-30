@@ -1463,6 +1463,10 @@ impl Value {
                 locked.deinit = true;
                 locked.readable.deinit();
                 locked.readable = Default::default();
+                // `Response::destroy` resets then raw-deallocs without ever
+                // running this value's drop glue; free the owned payloads.
+                locked.source_content_type = None;
+                locked.action = Action::None;
             }
             return;
         }
