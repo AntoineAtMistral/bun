@@ -86,12 +86,9 @@ pub(crate) fn is_valid_blob_type(slice: &[u8]) -> bool {
     slice.iter().all(|&c| matches!(c, 0x20..=0x7E))
 }
 
-/// `$newRustFunction("Blob.rs", "setBlobTypeVerbatim", 2)`, used only by the
+/// `$newRustFunction("Blob.rs", "setBlobTypeVerbatim", 2)`, only for the
 /// `readableStreamToBlob` builtin: store an already-normalized `type` exactly
-/// as given and return the blob. The `Blob` constructor's `type` option would
-/// canonicalize well-known essences through the interned MIME table
-/// ("application/json" becomes "application/json;charset=utf-8"), which must
-/// not apply to the type `blob()` extracts from the `Content-Type` header.
+/// as given, unlike the constructor's interned-MIME-table canonicalization.
 pub fn set_blob_type_verbatim(
     global_this: &JSGlobalObject,
     callframe: &CallFrame,
@@ -902,13 +899,9 @@ impl BlobExt for Blob {
     }
 
     fn from_dom_form_data(global_this: &JSGlobalObject, form_data: &mut jsc::DOMFormData) -> Blob {
-        // Prefix + 32 lowercase-hex chars of a fresh UUID. The boundary must
-        // not contain uppercase ASCII: the File API requires `Blob.type` to
-        // read back ASCII-lowercased, so an uppercase boundary could never
-        // survive a `request.blob()` -> `fetch(url, { body })` round-trip.
-        // undici and Gecko generate lowercase-safe boundaries for the same
-        // reason. The leading-dash count and hex suffix are what downstream
-        // multipart parsers actually key on (#29630) and are unchanged.
+        // Prefix + 32 lowercase-hex chars of a fresh UUID. Lowercase-only so
+        // the boundary survives a `request.blob()` -> `fetch({ body })` round
+        // trip: the File API requires `Blob.type` to read back lowercased.
         const BOUNDARY_PREFIX: &[u8; 17] = b"----formdata-bun-";
         let mut boundary_buf = [0u8; BOUNDARY_PREFIX.len() + 32];
         let boundary: &[u8] = {
