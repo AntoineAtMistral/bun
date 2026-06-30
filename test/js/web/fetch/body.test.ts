@@ -931,6 +931,16 @@ describe("blob() type over the network", () => {
     await res.text();
     expect(await promise).toEqual({ type: "image/jpeg;a=b", isFile: false });
   });
+
+  test("a data: URL with no mediatype keeps Bun's text/plain default", async () => {
+    // The data URL processor defaults an empty mediatype to text/plain; the
+    // response has no Content-Type header, so blob() reads the body's type.
+    const blob = await fetch("data:,Hello%2C%20World!").then(r => r.blob());
+    expect({ type: blob.type, text: await blob.text() }).toEqual({
+      type: "text/plain;charset=utf-8",
+      text: "Hello, World!",
+    });
+  });
 });
 
 describe("Bun.readableStreamToBlob", () => {
