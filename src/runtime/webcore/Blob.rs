@@ -88,8 +88,7 @@ pub(crate) fn is_valid_blob_type(slice: &[u8]) -> bool {
 
 /// `$newRustFunction("Blob.rs", "setBlobType", 2)`, only for the
 /// `readableStreamToBlob` builtin: validate and ASCII-lowercase a `type` like
-/// the `Blob` constructor, but never canonicalize it through the interned MIME
-/// table ("application/json" must not become "application/json;charset=utf-8").
+/// the `Blob` constructor, minus its interned-MIME-table canonicalization.
 pub fn set_blob_type(global_this: &JSGlobalObject, callframe: &CallFrame) -> JsResult<JSValue> {
     let arguments = callframe.arguments_old::<2>();
     let args = arguments.slice();
