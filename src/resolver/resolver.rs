@@ -3499,9 +3499,17 @@ impl<'a> Resolver<'a> {
             }
         };
 
+        // The tag check, the `in_place` rebuild below, and `entries.put` all read or
+        // overwrite the shared `EntriesOption` slot, so they must hold `entries_mutex`
+        // like every other in-place rewrite (`read_directory_with_iterator`,
+        // `dir_info_cached_miss`) and the snapshot readers do. Callers never hold it
+        // (`load_node_modules` is plain resolution), and nothing below re-acquires it.
+        // SAFETY: `rfs` points at process-global storage; outlives this guard.
+        let _entries_lock = rfs!().entries_mutex.lock_guard();
+
         if let Some(cached_entry) = rfs!().entries.at_index(cached_dir_entry_result.index) {
             if let Fs::file_system::real_fs::EntriesOption::Entries(entries) = cached_entry {
-                if entries.generation >= self.generation {
+                if !entries.stale && entries.generation >= self.generation {
                     dir_entries_option = cached_entry;
                     needs_iter = false;
                 } else {
@@ -4579,7 +4587,7 @@ impl<'a> Resolver<'a> {
 
             if let Some(cached_entry) = rfs!().entries.at_index(cached_dir_entry_result.index) {
                 if let Fs::file_system::real_fs::EntriesOption::Entries(entries) = cached_entry {
-                    if entries.generation >= self.generation {
+                    if !entries.stale && entries.generation >= self.generation {
                         dir_entries_option = cached_entry;
                         needs_iter = false;
                     } else {
