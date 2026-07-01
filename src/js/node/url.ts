@@ -580,13 +580,13 @@ function hostnameToUnicode(hostname: string) {
   for (let i = 0; i < labels.length; i++) {
     const label = labels[i];
     if (
-      label.length > 4 &&
+      label.length >= 4 &&
       label.$charCodeAt(0) === 120 /* x */ &&
       label.$charCodeAt(1) === 110 /* n */ &&
       label.$charCodeAt(2) === 45 /* - */ &&
       label.$charCodeAt(3) === 45 /* - */
     ) {
-      labels[i] = domainToUnicode(label) || label;
+      labels[i] = domainToUnicode(label);
     }
   }
   return labels.join(".");

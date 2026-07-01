@@ -136,5 +136,9 @@ describe("url.format", () => {
       url.format(new URL("foo://Sub.xn--0zwm56d.Example/p"), { unicode: true }),
       "foo://Sub.测试.Example/p",
     );
+
+    // A bare or undecodable "xn--" label becomes an empty label, matching Node.
+    assert.strictEqual(url.format(new URL("foo://xn--.a/"), { unicode: true }), "foo://.a/");
+    assert.strictEqual(url.format(new URL("foo://xn--a.b/"), { unicode: true }), "foo://.b/");
   });
 });
