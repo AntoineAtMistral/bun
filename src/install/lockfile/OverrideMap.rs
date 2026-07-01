@@ -1,7 +1,8 @@
 use bun_collections::VecExt;
+use bun_install_types::PackageNameHash;
 use core::cmp::Ordering;
 
-use crate::{PackageManager, PackageNameHash};
+use crate::PackageManager;
 use bun_collections::ArrayHashMap;
 use bun_core::Error;
 use bun_core::strings;

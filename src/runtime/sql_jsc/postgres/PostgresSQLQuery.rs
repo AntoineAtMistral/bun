@@ -1,12 +1,11 @@
 use core::cell::Cell;
 use core::mem;
 
-use crate::sql_jsc::jsc::{
-    CallFrame, JSGlobalObject, JSValue, JsError, JsRef, JsResult, VirtualMachineSqlExt as _,
-};
+use crate::sql_jsc::jsc::VirtualMachineSqlExt as _;
 use crate::sql_jsc::shared::query_ctor_args::QueryCtorArgs;
 use bun_core::String as BunString;
 use bun_jsc::JsCell;
+use bun_jsc::{CallFrame, JSGlobalObject, JSValue, JsError, JsRef, JsResult};
 use bun_ptr::AsCtxPtr;
 use bun_wyhash::hash;
 
@@ -208,7 +207,7 @@ impl PostgresSQLQuery {
         };
 
         // SAFETY: JS-thread only; short-lived `&mut` to the singleton VM, no other live borrow.
-        let vm = crate::sql_jsc::jsc::VirtualMachine::get().as_mut();
+        let vm = bun_jsc::virtual_machine::VirtualMachine::get().as_mut();
         let function = vm
             .sql_state()
             .postgresql_context
@@ -242,7 +241,7 @@ impl PostgresSQLQuery {
         };
 
         // SAFETY: JS-thread only; short-lived `&mut` to the singleton VM, no other live borrow.
-        let vm = crate::sql_jsc::jsc::VirtualMachine::get().as_mut();
+        let vm = bun_jsc::virtual_machine::VirtualMachine::get().as_mut();
         let function = vm
             .sql_state()
             .postgresql_context
@@ -315,7 +314,7 @@ impl PostgresSQLQuery {
         };
 
         // SAFETY: JS-thread only; short-lived `&mut` to the singleton VM, no other live borrow.
-        let vm = crate::sql_jsc::jsc::VirtualMachine::get().as_mut();
+        let vm = bun_jsc::virtual_machine::VirtualMachine::get().as_mut();
         let function = vm
             .sql_state()
             .postgresql_context

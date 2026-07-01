@@ -410,9 +410,8 @@ impl<const SSL: bool> WebSocket<SSL> {
         };
 
         // Decompress the data
-        // SAFETY: single JS thread; the pool lives in the VM's RareData which
-        // outlives every open connection.
-        let mut decompressed = unsafe { deflate.pool.as_ref() }.array_list();
+        // PERF: allocates a fresh heap Vec per call — profile if hot.
+        let mut decompressed = Vec::with_capacity(websocket_deflate::STACK_BUFFER_SIZE);
         // `defer decompressed.deinit()` → Drop on Vec
 
         if let Err(err) = deflate.decompress(data, &mut decompressed) {

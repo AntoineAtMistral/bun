@@ -1,6 +1,9 @@
 //! Text lockfile (bun.lock) stringifier and parser.
 
 use bun_collections::VecExt;
+use bun_install_types::{
+    DependencyID, INVALID_PACKAGE_ID, PackageID, PackageNameHash, TruncatedPackageNameHash,
+};
 use core::fmt::Write as _;
 
 use bun_ast::{Expr, expr::Data as ExprData};
@@ -14,8 +17,7 @@ use bun_semver::semver_string::{
 use bun_semver::{self as Semver, ExternalString, String};
 
 use crate::{
-    DependencyID, INVALID_PACKAGE_ID, Origin, PackageID, PackageManager, PackageNameHash,
-    Repository, Resolution, TruncatedPackageNameHash,
+    Origin, PackageManager, Repository, Resolution,
     bin::{Bin, Tag as BinTag},
     npm,
     resolution::Tag as ResolutionTag,

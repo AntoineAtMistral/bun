@@ -4,6 +4,7 @@ use bun_collections::{StringArrayHashMap, StringHashMap};
 use bun_core::strings;
 use bun_core::{Error, Global, Output, err, zstr};
 use bun_core::{MAX_PATH_BYTES, PathBuffer};
+use bun_install_types::PackageID;
 use bun_semver::query::token::Wildcard;
 use bun_semver::{self as Semver, SlicedString, String as SemverString};
 use bun_sys::{self, Fd, File, O};
@@ -22,7 +23,7 @@ use crate::pnpm;
 use crate::pnpm::MigratePnpmLockfileError;
 use crate::resolution::{self, Resolution, TaggedValue as ResTagged};
 use crate::yarn;
-use crate::{ExternalStringList, PackageID, PackageManager};
+use crate::{ExternalStringList, PackageManager};
 use bun_install_types::dependency::{
     self, Behavior, Dependency, Tag as DepTag, Value as DepValue, Version as DepVersion,
 };
@@ -216,7 +217,7 @@ const PACKAGE_ID_IS_LINK: u32 = u32::MAX;
 const PACKAGE_ID_IS_BUNDLED: u32 = u32::MAX - 1;
 
 #[cfg(debug_assertions)]
-const UNSET_PACKAGE_ID: PackageID = crate::INVALID_PACKAGE_ID - 1;
+const UNSET_PACKAGE_ID: PackageID = bun_install_types::INVALID_PACKAGE_ID - 1;
 
 use bun_install_types::DependencyGroup;
 // Order preserved: deps→dev→peer→optional.
@@ -1444,7 +1445,7 @@ pub(crate) fn migrate_npm_lockfile<'a>(
                                                 });
                                                 this.buffers
                                                     .resolutions
-                                                    .push(crate::INVALID_PACKAGE_ID);
+                                                    .push(bun_install_types::INVALID_PACKAGE_ID);
                                                 continue 'dep_loop;
                                             }
                                         }
