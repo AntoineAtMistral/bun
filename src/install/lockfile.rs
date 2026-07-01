@@ -1012,7 +1012,7 @@ impl Lockfile {
         }
         let dependency_id = self.buffers.trees[id as usize].dependency_id;
         let package_id = self.buffers.resolutions[dependency_id as usize];
-        package_id != invalid_package_id
+        package_id != INVALID_PACKAGE_ID
             && self.packages.slice().items_resolution()[package_id as usize].tag
                 == ResolutionTag::Folder
     }

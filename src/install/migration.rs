@@ -1553,8 +1553,8 @@ pub(crate) fn clear_non_registry_platform_constraints(lockfile: &mut Lockfile) {
             resolution::Tag::Root | resolution::Tag::Npm => {}
             _ => {
                 let meta = &mut lockfile.packages.items_meta_mut()[i];
-                meta.arch = Npm::Architecture::ALL;
-                meta.os = Npm::OperatingSystem::ALL;
+                meta.arch = Architecture::ALL;
+                meta.os = OperatingSystem::ALL;
             }
         }
     }
