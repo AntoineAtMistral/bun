@@ -573,6 +573,9 @@ function hostnameToUnicode(hostname: string) {
   // Only labels that literally start with "xn--" are decoded; others keep
   // their original bytes and case (opaque hosts for non-special schemes are
   // not lowercased by the parser).
+  // domainToUnicode is UTS#46 and case-folds, so a mixed-case "xn--" label in
+  // an opaque host can differ from Node's serializer (raw per-label punycode);
+  // it matches Node's own url.domainToUnicode instead.
   if (!hostname || hostname.$charCodeAt(0) === Char.LEFT_SQUARE_BRACKET || hostname.indexOf("xn--") === -1) {
     return hostname;
   }
