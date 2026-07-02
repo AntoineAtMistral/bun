@@ -4919,10 +4919,10 @@ NEVER_INLINE SUPPRESS_ASAN static void scrubDeadStackBeforeGC()
     uint8_t* sp;
 #if CPU(X86_64) && COMPILER(GCC_COMPATIBLE)
     asm volatile("movq %%rsp, %0"
-                 : "=r"(sp));
+        : "=r"(sp));
 #elif CPU(ARM64) && COMPILER(GCC_COMPATIBLE)
     asm volatile("mov %0, sp"
-                 : "=r"(sp));
+        : "=r"(sp));
 #else
     sp = static_cast<uint8_t*>(currentStackPointer());
 #endif
