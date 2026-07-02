@@ -3,12 +3,16 @@ import { bunEnv, bunExe, normalizeBunSnapshot, tempDir } from "harness";
 
 // A net.Socket's implicit once('connect') listener must become collectable as
 // soon as the event has fired: one explicit gc() plus one setImmediate has to
-// be enough to observe the collection, every time. Before the dead-stack scrub
-// in the gc() entry point, stale JSValues from the socket-event dispatch could
-// sit exactly where the collector's own call tree is laid down, and the
-// conservative root scan then resurrected the listener on every later gc()
-// issued from the same place, so this assertion failed deterministically on
-// some builds (every linux-x64-musl CI build between 2026-06-28 and this fix).
+// be enough to observe the collection, every time.
+//
+// Regression: the event loop dispatched timer/immediate callbacks over stack
+// memory still holding JSValues from the earlier, deeper socket-event dispatch.
+// Never-written holes in the new dispatch frames (struct padding, unused
+// locals) then read as pointers into dead cells, and the conservative root
+// scan re-marked the listener on every gc() issued from such a callback, so
+// this assertion failed deterministically on some builds (every
+// linux-x64-musl CI build between 2026-06-28 and this fix). The event loop now
+// zeroes the dead stack (JSC::sanitizeStackForVM) before each dispatch phase.
 // This is the scenario of test/js/node/test/parallel/test-net-connect-memleak.js.
 // https://github.com/oven-sh/bun/issues/33044
 const fixture = String.raw`

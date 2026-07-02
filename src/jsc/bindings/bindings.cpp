@@ -4759,6 +4759,30 @@ void JSC__VM__releaseWeakRefs(JSC::VM* arg0)
     arg0->finalizeSynchronousJSExecution();
 }
 
+// The event loop calls this before each JS dispatch phase (tasks, immediates,
+// I/O, timers). The dispatch frames are built right below the caller, over
+// memory still holding JSValues from earlier, deeper dispatches; any slot the
+// new frames never write (struct padding, unused locals) would hand those stale
+// values to the conservative GC scan as roots, keeping dead objects alive
+// forever. This function's own frame covers that window: zeroing it (plus
+// JSC's lastStackTop-based sanitizer for the deeper region) and returning
+// leaves only zeroes behind for the dispatch frames to be built over.
+// WebKit gets the same effect from sanitizeStackForVM on every JSLock
+// release; Bun holds the API lock for the lifetime of the thread.
+NEVER_INLINE void JSC__VM__sanitizeStack(JSC::VM* vm)
+{
+    // Covers the native dispatch + JS entry frames; see #33044 for the case of
+    // a dead once('connect') listener pinned by padding in a dispatch frame.
+    constexpr size_t windowWords = 4096 / sizeof(uint64_t);
+    JSC::sanitizeStackForVM(*vm);
+    uint64_t window[windowWords];
+    // volatile: the stores to a dying frame must not be elided, the zeroes are
+    // what the next conservative scan reads.
+    volatile uint64_t* p = window;
+    for (size_t i = 0; i < windowWords; i++)
+        p[i] = 0;
+}
+
 void JSC__JSValue__getClassName(JSC::EncodedJSValue JSValue0, JSC::JSGlobalObject* arg1, ZigString* arg2)
 {
     JSValue value = JSValue::decode(JSValue0);
@@ -4894,58 +4918,6 @@ JSC::EncodedJSValue JSC__JSValue__toError_(JSC::EncodedJSValue JSValue0)
 
 #pragma mark - JSC::VM
 
-#include <wtf/StackBounds.h>
-#include <wtf/StackPointer.h>
-#include <wtf/Threading.h>
-
-// Zero a bounded window of the dead stack below this frame before collecting.
-//
-// The conservative root scan covers the whole live stack range, including
-// bytes of dead frames that the collection's own call tree is about to sit in.
-// Stale JSValues left there by an earlier, deeper call tree (for example the
-// socket event dispatch that invoked a listener a few event-loop turns ago)
-// resurrect whatever they point at, and a cell marked in the previous cycle is
-// a valid conservative target for the next one (MarkedBlock::Handle::isLive),
-// so one stale word defeats every later explicit gc() issued from the same
-// place. WebKit clears this region on every run-loop turn because
-// JSLock::willReleaseLock() calls sanitizeStackForVM(); Bun holds the API lock
-// for the lifetime of the thread, so the explicit gc() entry point has to do
-// it itself.
-NEVER_INLINE SUPPRESS_ASAN static void scrubDeadStackBeforeGC()
-{
-    constexpr size_t scrubWindow = 128 * 1024;
-    constexpr size_t redZone = 512; // x86-64 red zone (128) plus slack
-    const WTF::StackBounds bounds = WTF::Thread::currentSingleton().stack();
-    uint8_t* sp;
-#if CPU(X86_64) && COMPILER(GCC_COMPATIBLE)
-    asm volatile("movq %%rsp, %0"
-        : "=r"(sp));
-#elif CPU(ARM64) && COMPILER(GCC_COMPATIBLE)
-    asm volatile("mov %0, sp"
-        : "=r"(sp));
-#else
-    sp = static_cast<uint8_t*>(currentStackPointer());
-#endif
-    uint8_t* hi = sp - redZone;
-    uint8_t* lo = hi - scrubWindow;
-    uint8_t* limit = static_cast<uint8_t*>(bounds.recursionLimit()) + 4096;
-    if (lo < limit)
-        lo = limit;
-    // Escape hatch for A/B testing the scrub with an identical binary layout.
-    static const bool disabled = !!getenv("BUN_DISABLE_GC_STACK_SCRUB");
-    if (disabled)
-        return;
-    // A plain loop instead of memset: this function must not be instrumented
-    // (the whole point is to write to dead stack below the stack pointer).
-    for (uint8_t* p = lo; p < hi; p += sizeof(uint64_t))
-        *reinterpret_cast<volatile uint64_t*>(p) = 0;
-}
-
-extern "C" void Bun__scrubDeadStackBeforeGC()
-{
-    scrubDeadStackBeforeGC();
-}
-
 size_t JSC__VM__runGC(JSC::VM* vm, bool sync)
 {
     JSC::JSLockHolder lock(vm);
@@ -4957,7 +4929,6 @@ size_t JSC__VM__runGC(JSC::VM* vm, bool sync)
 #endif
 
     vm->finalizeSynchronousJSExecution();
-    scrubDeadStackBeforeGC();
 
     if (sync) {
         vm->clearSourceProviderCaches();

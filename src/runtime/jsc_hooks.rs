@@ -904,6 +904,12 @@ unsafe fn auto_tick(vm: *mut VirtualMachine) {
     // SAFETY: `el` is the live per-thread event loop.
     unsafe { (*el).run_imminent_gc_timer() };
 
+    // The immediates above ran JS; zero the dead stack again before the poll
+    // so the I/O callbacks' dispatch frames see no stale JSValues
+    // (conservative GC; see `VM::sanitize_stack`).
+    // SAFETY: per fn contract — `vm` is the live per-thread VM.
+    unsafe { &*vm }.jsc_vm().sanitize_stack();
+
     // ── poll the I/O loop with the next-timer deadline ──────────────────
     if state.is_null() {
         // No high-tier state (unit test) — fall back to a non-blocking I/O
@@ -977,6 +983,11 @@ unsafe fn auto_tick(vm: *mut VirtualMachine) {
 
     #[cfg(unix)]
     {
+        // The poll above ran I/O callbacks; zero the dead stack again before
+        // the timer callbacks are dispatched (conservative GC; see
+        // `VM::sanitize_stack`).
+        // SAFETY: per fn contract — `vm` is the live per-thread VM.
+        unsafe { &*vm }.jsc_vm().sanitize_stack();
         // Note (§Forbidden aliased-&mut): `drain_timers` fires user
         // `setTimeout` callbacks which may re-enter `timer::All::insert`/
         // `remove` via `runtime_state()`. Pass raw `*mut Self` so no
@@ -1043,6 +1054,12 @@ unsafe fn auto_tick_active(vm: *mut VirtualMachine) {
         };
     }
 
+    // The immediates above ran JS; zero the dead stack again before the poll
+    // so the I/O callbacks' dispatch frames see no stale JSValues
+    // (conservative GC; see `VM::sanitize_stack`).
+    // SAFETY: per fn contract — `vm` is the live per-thread VM.
+    unsafe { &*vm }.jsc_vm().sanitize_stack();
+
     if state.is_null() {
         // SAFETY: `loop_` is the live per-thread uws loop.
         unsafe { (*loop_).tick_without_idle() };
@@ -1091,6 +1108,11 @@ unsafe fn auto_tick_active(vm: *mut VirtualMachine) {
 
     #[cfg(unix)]
     {
+        // The poll above ran I/O callbacks; zero the dead stack again before
+        // the timer callbacks are dispatched (conservative GC; see
+        // `VM::sanitize_stack`).
+        // SAFETY: per fn contract — `vm` is the live per-thread VM.
+        unsafe { &*vm }.jsc_vm().sanitize_stack();
         // SAFETY: `state` is the live per-thread `RuntimeState`; see Note
         // on `auto_tick` re: aliased-&mut across `fire()`.
         unsafe { timer::All::drain_timers(&mut (*state).timer, vm.cast()) };

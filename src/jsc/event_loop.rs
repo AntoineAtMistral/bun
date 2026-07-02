@@ -594,6 +594,10 @@ impl EventLoop {
     pub fn tick(&mut self) {
         jsc::mark_binding();
         crate::top_scope!(scope, self.global_ref());
+        // Zero the dead stack before dispatching this batch of tasks, so their
+        // native frames are not built over stale JSValues from earlier, deeper
+        // dispatches (which the conservative GC scan would keep alive).
+        self.vm_ref().jsc_vm().sanitize_stack();
         self.entered_event_loop_count += 1;
         // The scope/counter cleanup is inlined at each return site below (a
         // scopeguard closure would alias `&mut self`).
@@ -797,6 +801,12 @@ impl EventLoop {
     /// # Safety
     /// `virtual_machine` must be the live per-thread VM that owns this `EventLoop`.
     pub unsafe fn tick_immediate_tasks(&mut self, virtual_machine: *mut VirtualMachine) {
+        // The immediate callbacks' dispatch frames are laid over stack memory
+        // dirtied by the earlier (deeper) I/O and timer dispatches of this loop
+        // iteration. Zero that dead region first, or padding/spill holes in the
+        // new frames inherit stale JSValues that the conservative GC scan roots
+        // (a once('connect') listener was kept alive forever this way, #33044).
+        self.vm_ref().jsc_vm().sanitize_stack();
         // R-2 noalias mitigation (PORT_NOTES_PLAN R-2; precedent
         // `b818e70e1c57` NodeHTTPResponse::cork): `&mut self` is `noalias`, and
         // the only thing reaching the `__bun_run_immediate_task` extern call is
