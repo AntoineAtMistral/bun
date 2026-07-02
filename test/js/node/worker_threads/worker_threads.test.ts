@@ -1,4 +1,4 @@
-import { bunEnv, bunExe, tempDir, tmpdirSync } from "harness";
+import { bunEnv, bunExe, isDebug, tempDir, tmpdirSync } from "harness";
 import { once } from "node:events";
 import fs from "node:fs";
 import { join, relative, resolve } from "node:path";
@@ -280,7 +280,10 @@ describe("execArgv option", async () => {
   // TODO(@190n) get our handling of non-string array elements in line with Node's
 });
 
-test("eval does not leak source code", async () => {
+// Skipped in debug: the fixture's 6 workers each lex a 100 MiB source, which
+// a debug build does at ~25 MiB/s (~30 s total), and a smaller source falls
+// below the fixture's RSS noise floor. Release + ASAN cover the regression.
+test.skipIf(isDebug)("eval does not leak source code", async () => {
   const proc = Bun.spawn({
     cmd: [bunExe(), "eval-source-leak-fixture.js"],
     env: bunEnv,

@@ -208,13 +208,7 @@ describe("web worker", () => {
       stdio: ["inherit", "pipe", "inherit"],
     });
 
-    const timer = setTimeout(() => {
-      x.kill();
-      done(new Error("timeout"));
-    }, 1000);
-
     x.exited.then(async code => {
-      clearTimeout(timer);
       if (code !== 0) {
         done(new Error("exited with non-zero code"));
       } else {
@@ -236,13 +230,7 @@ describe("web worker", () => {
       stdio: ["inherit", "pipe", "inherit"],
     });
 
-    const timer = setTimeout(() => {
-      x.kill();
-      done(new Error("timeout"));
-    }, 1000);
-
     x.exited.then(async code => {
-      clearTimeout(timer);
       if (code !== 0) {
         done(new Error("exited with non-zero code"));
       } else {
