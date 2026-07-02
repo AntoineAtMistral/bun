@@ -3076,10 +3076,16 @@ void GlobalObject::addBuiltinGlobals(JSC::VM& vm)
 /// `globalThis.gc()` is an alias for `Bun.gc(true)`
 /// Note that `vm` is a `VirtualMachine*`
 extern "C" size_t Bun__gc(void* vm, bool sync);
+extern "C" void Bun__scrubDeadStackBeforeGC();
 JSC_DEFINE_HOST_FUNCTION(functionJsGc,
     (JSC::JSGlobalObject * global, JSC::CallFrame* callFrame))
 {
     Zig::GlobalObject* globalObject = defaultGlobalObject(global);
+    // Zero the dead stack below this host call before the collector's call
+    // tree is laid down in it, so stale JSValues left there by earlier, deeper
+    // call trees cannot be resurrected by the conservative root scan. See
+    // scrubDeadStackBeforeGC() in bindings.cpp.
+    Bun__scrubDeadStackBeforeGC();
     Bun__gc(globalObject->bunVM(), true);
     return JSValue::encode(jsUndefined());
 }
