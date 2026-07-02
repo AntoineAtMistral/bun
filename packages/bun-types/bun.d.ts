@@ -492,6 +492,13 @@ declare module "bun" {
      * This value is unique for each `Worker` instance inside a single process.
      */
     threadId: number;
+
+    /**
+     * The JS engine resource constraints this worker was created with, or
+     * an empty object once the worker has stopped. Inside the worker thread,
+     * it is available as `require('node:worker_threads').resourceLimits`.
+     */
+    readonly resourceLimits: import("node:worker_threads").ResourceLimits;
   }
 
   interface Env {

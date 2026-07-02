@@ -25,11 +25,13 @@ const {
   1: _threadId,
   2: _receiveMessageOnPort,
   3: environmentData,
+  4: resourceLimits,
 } = $cpp("Worker.cpp", "createNodeWorkerThreadsBinding") as [
   unknown,
   number,
   (port: unknown) => unknown,
   Map<unknown, unknown>,
+  Record<string, number>,
 ];
 
 type NodeWorkerOptions = import("node:worker_threads").WorkerOptions;
@@ -116,8 +118,6 @@ const _MessagePort = globalThis.MessagePort;
 injectFakeEmitter(_MessagePort);
 
 const MessagePort = _MessagePort;
-
-let resourceLimits = {};
 
 // Emulation of Node's JSTransferable protocol (kTransfer/kTransferList/kDeserialize) for
 // objects like FileHandle that are not natively transferable in Bun. On send, each such
@@ -535,6 +535,13 @@ class Worker extends EventEmitter {
     return this.#worker.threadId;
   }
 
+  get resourceLimits() {
+    // Read back from native so the user's option is parsed exactly once,
+    // like Node's kHandle.getResourceLimits(): reported and enforced limits
+    // cannot diverge. A fresh object per read; {} once the worker stopped.
+    return this.#worker.resourceLimits;
+  }
+
   ref() {
     this.#worker.ref();
   }
@@ -582,8 +589,16 @@ class Worker extends EventEmitter {
     }
 
     const onExitPromise = this.#onExitPromise;
-    if (onExitPromise) {
-      return $isPromise(onExitPromise) ? onExitPromise : Promise.$resolve(onExitPromise);
+    // Already exited: Node resolves terminate() to undefined, not the exit
+    // code. Must not be a truthiness check, or exit code 0 would fall
+    // through and replace the stored code with a never-resolving promise.
+    if (typeof onExitPromise === "number") {
+      return Promise.$resolve();
+    }
+    // A terminate() is already in flight on a live worker; every concurrent
+    // caller resolves to the same exit code.
+    if (onExitPromise !== undefined) {
+      return onExitPromise;
     }
 
     const { resolve, promise } = Promise.withResolvers();

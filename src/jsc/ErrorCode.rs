@@ -717,9 +717,11 @@ impl ErrorCode {
     pub const TRACE_EVENTS_CATEGORY_REQUIRED: ErrorCode = ErrorCode(329);
     /// `ERR_TRACE_EVENTS_UNAVAILABLE` (instanceof Error)
     pub const TRACE_EVENTS_UNAVAILABLE: ErrorCode = ErrorCode(330);
+    /// `ERR_WORKER_OUT_OF_MEMORY` (instanceof Error)
+    pub const WORKER_OUT_OF_MEMORY: ErrorCode = ErrorCode(331);
 
     /// == C++ `NODE_ERROR_COUNT`.
-    pub const COUNT: u16 = 331;
+    pub const COUNT: u16 = 332;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1047,6 +1049,7 @@ impl ErrorCode {
     pub const ERR_WEBASSEMBLY_RESPONSE: ErrorCode = ErrorCode::WEBASSEMBLY_RESPONSE;
     pub const ERR_WORKER_INIT_FAILED: ErrorCode = ErrorCode::WORKER_INIT_FAILED;
     pub const ERR_WORKER_NOT_RUNNING: ErrorCode = ErrorCode::WORKER_NOT_RUNNING;
+    pub const ERR_WORKER_OUT_OF_MEMORY: ErrorCode = ErrorCode::WORKER_OUT_OF_MEMORY;
     pub const ERR_WORKER_UNSUPPORTED_OPERATION: ErrorCode = ErrorCode::WORKER_UNSUPPORTED_OPERATION;
     pub const ERR_ZLIB_INITIALIZATION_FAILED: ErrorCode = ErrorCode::ZLIB_INITIALIZATION_FAILED;
     pub const ERR_INTERNAL_ASSERTION: ErrorCode = ErrorCode::INTERNAL_ASSERTION;
@@ -1442,6 +1445,7 @@ static CODE_STR: [&str; ErrorCode::COUNT as usize] = [
     "ERR_INVALID_BUFFER_SIZE",
     "ERR_TRACE_EVENTS_CATEGORY_REQUIRED",
     "ERR_TRACE_EVENTS_UNAVAILABLE",
+    "ERR_WORKER_OUT_OF_MEMORY",
 ];
 
 // ──────────────────────────────────────────────────────────────────────────
